@@ -102,8 +102,8 @@ client, err := specificai.NewClient()
 |--------|---------|-------------|
 | `WithBaseURL(url)` | `SPECIFIC_AI_BASE_URL` | SpecificAI platform URL |
 | `WithAPIKey(key)` | `SPECIFIC_AI_API_KEY` | API key for authentication |
-| `WithTritonURL(url)` | — | Direct Triton URL (bypasses gateway) |
 | `WithTrace(true)` | — | Enable tracing to the platform |
+| `WithInferenceURL(url)` | — | Direct inference (Triton) URL (bypasses gateway) |
 | `WithTimeout(d)` | — | HTTP timeout (default: 30s) |
 
 ## SDK Modes
@@ -175,7 +175,7 @@ if err != nil {
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `405 Method Not Allowed` | Using gateway URL as `WithTritonURL` | Remove `WithTritonURL`; use `WithBaseURL` only |
+| `405 Method Not Allowed` | Using gateway URL as `WithInferenceURL` | Remove `WithInferenceURL`; use `WithBaseURL` only |
 | `404 Not Found` | Wrong model name | Check task/project names match the platform exactly |
 | `401 Unauthorized` | Invalid or expired API key | Regenerate key in platform Settings |
 | Connection refused | Wrong URL or service down | Verify the URL and that the service is running |

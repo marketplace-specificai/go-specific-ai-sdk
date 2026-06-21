@@ -45,15 +45,15 @@ func TestIntegration_DirectInference_Classification(t *testing.T) {
 	t.Logf("Labels: %v, Logits: %d values", cr.Labels, len(logits))
 }
 
-func TestIntegration_DirectInference_TritonURL(t *testing.T) {
-	tritonURL := os.Getenv("SPECIFIC_AI_TRITON_URL")
-	if tritonURL == "" {
-		t.Skip("skipping: SPECIFIC_AI_TRITON_URL not set")
+func TestIntegration_DirectInference_InferenceURL(t *testing.T) {
+	inferenceURL := os.Getenv("SPECIFIC_AI_INFERENCE_URL")
+	if inferenceURL == "" {
+		t.Skip("skipping: SPECIFIC_AI_INFERENCE_URL not set")
 	}
 	taskName := requiredEnv(t, "INTEGRATION_TASK_NAME")
 	projectName := requiredEnv(t, "INTEGRATION_PROJECT_NAME")
 
-	client := NewClient("", tritonURL)
+	client := NewClient("", inferenceURL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
