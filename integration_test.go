@@ -60,14 +60,14 @@ func TestIntegration_ClientInit_WithTrace(t *testing.T) {
 	defer client.Close()
 }
 
-func TestIntegration_ClientInit_TritonURLOnly(t *testing.T) {
-	tritonURL := os.Getenv("SPECIFIC_AI_TRITON_URL")
-	if tritonURL == "" {
-		t.Skip("skipping: SPECIFIC_AI_TRITON_URL not set")
+func TestIntegration_ClientInit_InferenceURLOnly(t *testing.T) {
+	inferenceURL := os.Getenv("SPECIFIC_AI_INFERENCE_URL")
+	if inferenceURL == "" {
+		t.Skip("skipping: SPECIFIC_AI_INFERENCE_URL not set")
 	}
-	client, err := NewClient(WithTritonURL(tritonURL))
+	client, err := NewClient(WithInferenceURL(inferenceURL))
 	if err != nil {
-		t.Fatalf("NewClient with triton URL: %v", err)
+		t.Fatalf("NewClient with inference URL: %v", err)
 	}
 	defer client.Close()
 }
