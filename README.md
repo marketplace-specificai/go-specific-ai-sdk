@@ -64,14 +64,45 @@ func main() {
 ```go
 client, err := specificai.NewClient(
     specificai.WithBaseURL("https://platform.specific.ai"),
-    specificai.WithTritonURL("http://triton:8000"),
     specificai.WithTrace(true),
+    specificai.WithInferenceURL("http://triton:8000"),
 )
 if err != nil { log.Fatal(err) }
 defer client.Close()
 
 resp, err := client.Create(ctx, "Great product!", "sentiment", "my_project")
 // resp is an inference.LMResponse (ClassificationResponse, GenerationResponse, or EntityRecognitionResponse)
+```
+
+### Logging external model interactions
+
+Use the task-specific `Log*` methods to record a prompt/response pair from an
+external (non-SpecificAI) model into the platform, so the usecase is created with
+the correct task type. The record is added to an existing Task or used to
+bootstrap a new one with the same `taskName` and `projectName`. Logging requires
+`WithBaseURL` and is fire-and-forget, so call `Close` to flush pending records
+before exit. Pass nil labels / nil entities / an empty summary to log only the
+example (no response).
+
+Optional settings are passed as functional options: `WithMultilabel()` marks a
+classification task as multi-label (defaults to single-label) and
+`WithModelName("...")` sets the external model name (left null when omitted).
+
+```go
+client, err := specificai.NewClient(specificai.WithBaseURL("https://platform.specific.ai"))
+if err != nil { log.Fatal(err) }
+defer client.Close()
+
+// Classification (multi-label and model name are optional):
+err = client.LogClassification(ctx, "prompt sent to your model", []string{"Negative"},
+    "sentiment", "my_project", specificai.WithMultilabel(), specificai.WithModelName("my-external-model"))
+
+// Summarization (model name omitted => left null):
+err = client.LogSummarization(ctx, "prompt", "a short summary", "doc_summary", "my_project")
+
+// Entity recognition:
+err = client.LogEntityRecognition(ctx, "prompt", []inference.Entity{ /* ... */ },
+    "entity_extraction", "my_project", specificai.WithModelName("my-external-model"))
 ```
 
 ### OpenAI Wrapper
@@ -118,8 +149,8 @@ All options use the functional options pattern (`WithXxx`):
 |---|---|---|
 | `WithBaseURL(url)` | `$SPECIFIC_AI_BASE_URL` | Backend URL |
 | `WithAPIKey(key)` | `$SPECIFIC_AI_API_KEY` | Bearer API key |
-| `WithTritonURL(url)` | — | Direct Triton inference URL |
 | `WithTrace(bool)` | `false` | Enable trace collection (requires base URL) |
+| `WithInferenceURL(url)` | — | Direct inference (Triton) URL |
 | `WithTimeout(duration)` | `30s` | HTTP request timeout |
 | `WithAPIKeyHeader(name)` | `"Authorization"` | Auth header name |
 | `WithAPIKeyPrefix(prefix)` | `"Bearer"` | Auth header prefix |
@@ -209,6 +240,7 @@ See the [examples/](examples/) directory for complete working examples:
 - [Platform Tasks](examples/platform_tasks/) — Create and list tasks
 - [Platform Training](examples/platform_training/) — Configure, train, and evaluate models
 - [Direct Inference](examples/direct_inference/) — Run inference against deployed models
+- [Log](examples/log/) — Log external (non-SpecificAI) model interactions into the platform
 - [OpenAI Wrapper](examples/openai/) — OpenAI Chat Completions with tracing
 - [Anthropic Wrapper](examples/anthropic/) — Anthropic Messages API with tracing
 

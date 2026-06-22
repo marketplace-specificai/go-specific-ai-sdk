@@ -12,7 +12,7 @@ import (
 
 // Record is the payload sent to the tracing endpoint.
 type Record struct {
-	ModelName         string    `json:"modelname"`
+	ModelName         string    `json:"modelname,omitempty"`
 	Prompt            string    `json:"prompt"`
 	Response          any       `json:"response"`
 	UsecaseName       string    `json:"usecase_name"`
@@ -24,6 +24,11 @@ type Record struct {
 	Logprobs          []float64 `json:"logprobs,omitempty"`
 	Probs             []float64 `json:"probs,omitempty"`
 	RawLogits         []float64 `json:"raw_logits,omitempty"`
+	// TaskType is the platform task type to create the usecase with (e.g.
+	// "ClassificationResponse", "Summarization", "EntityRecognitionResponse").
+	TaskType string `json:"task_type,omitempty"`
+	// IsMultilabel applies to classification logging only.
+	IsMultilabel bool `json:"is_multilabel"`
 }
 
 // Collector sends trace records to the SpecificAI platform in the background.

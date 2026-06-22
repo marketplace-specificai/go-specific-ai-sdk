@@ -11,7 +11,7 @@ type clientConfig struct {
 	apiKeyHeader      string
 	apiKeyPrefix      string
 	timeout           time.Duration
-	tritonURL         string
+	inferenceURL      string
 	trace             bool
 	sessionCookie     string
 	sessionCookieName string
@@ -44,11 +44,11 @@ func WithTimeout(d time.Duration) Option {
 	return func(c *clientConfig) { c.timeout = d }
 }
 
-// WithTritonURL sets a direct Triton inference URL (e.g. "http://triton:8000").
-// Only use this when connecting directly to a Triton server, not when going
+// WithInferenceURL sets a direct inference (Triton) URL (e.g. "http://triton:8000").
+// Only use this when connecting directly to an inference server, not when going
 // through the SpecificAI gateway (WithBaseURL handles that automatically).
-func WithTritonURL(url string) Option {
-	return func(c *clientConfig) { c.tritonURL = url }
+func WithInferenceURL(url string) Option {
+	return func(c *clientConfig) { c.inferenceURL = url }
 }
 
 // WithTrace enables trace collection to the SpecificAI platform.

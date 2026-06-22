@@ -21,8 +21,8 @@
 //
 //	client, err := specificai.NewClient(
 //	    specificai.WithBaseURL("https://platform.specific.ai"),
-//	    specificai.WithTritonURL("http://triton:8000"),
 //	    specificai.WithTrace(true),
+//	    specificai.WithInferenceURL("http://triton:8000"),
 //	)
 //	if err != nil { log.Fatal(err) }
 //	defer client.Close()

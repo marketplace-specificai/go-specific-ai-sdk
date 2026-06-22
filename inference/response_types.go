@@ -8,7 +8,7 @@ type LMResponse interface {
 // ClassificationResponse contains classification results.
 type ClassificationResponse struct {
 	Labels      []string           `json:"labels"`
-	Confidences map[string]float64 `json:"confidences"`
+	Confidences map[string]float64 `json:"confidences,omitempty"`
 	Thresholds  map[string]float64 `json:"thresholds,omitempty"`
 	ExtraParams map[string]any     `json:"extra_params,omitempty"`
 	Validated   bool               `json:"is_validated"`
@@ -35,7 +35,7 @@ type Relation struct {
 // EntityRecognitionResponse contains NER results.
 type EntityRecognitionResponse struct {
 	Entities    []Entity       `json:"entities"`
-	Relations   []Relation     `json:"relations"`
+	Relations   []Relation     `json:"relations,omitempty"`
 	ExtraParams map[string]any `json:"extra_params,omitempty"`
 	Validated   bool           `json:"is_validated"`
 }

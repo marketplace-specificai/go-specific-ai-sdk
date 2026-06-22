@@ -46,19 +46,19 @@ type tritonResponse struct {
 
 // Client performs direct inference against a Triton endpoint.
 type Client struct {
-	baseURL   string
-	tritonURL string
-	http      *http.Client
+	baseURL      string
+	inferenceURL string
+	http         *http.Client
 }
 
 // NewClient creates a new inference client.
 // baseURL is the SpecificAI gateway URL.
-// tritonURL is an optional direct Triton URL; when set it takes precedence.
-func NewClient(baseURL, tritonURL string) *Client {
+// inferenceURL is an optional direct inference (Triton) URL; when set it takes precedence.
+func NewClient(baseURL, inferenceURL string) *Client {
 	return &Client{
-		baseURL:   strings.TrimRight(baseURL, "/"),
-		tritonURL: strings.TrimRight(tritonURL, "/"),
-		http:      &http.Client{Timeout: 30 * time.Second},
+		baseURL:      strings.TrimRight(baseURL, "/"),
+		inferenceURL: strings.TrimRight(inferenceURL, "/"),
+		http:         &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -88,7 +88,7 @@ func gatewayRoot(baseURL string) string {
 }
 
 func (c *Client) modelInference(ctx context.Context, modelName, inputText string) ([]float64, map[string]any, error) {
-	tritonBase := c.tritonURL
+	tritonBase := c.inferenceURL
 	if tritonBase == "" {
 		tritonBase = gatewayRoot(c.baseURL) + "/public/triton"
 	}
@@ -213,10 +213,13 @@ func parseClassification(result map[string]any) (*ClassificationResponse, error)
 		}
 	}
 
+	extraParams, _ := result["extra_params"].(map[string]any)
+
 	return &ClassificationResponse{
 		Labels:      labels,
 		Confidences: confidences,
 		Thresholds:  thresholds,
+		ExtraParams: extraParams,
 	}, nil
 }
 
