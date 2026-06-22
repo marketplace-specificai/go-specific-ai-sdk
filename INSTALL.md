@@ -9,10 +9,10 @@
 ## Installation
 
 ```bash
-go get github.com/specific-ai-org/specificai-go-sdk@latest
+go get github.com/marketplace-specificai/go-specific-ai-sdk@latest
 ```
 
-> The module path is `github.com/specific-ai-org/specificai-go-sdk`. Imports use this
+> The module path is `github.com/marketplace-specificai/go-specific-ai-sdk`. Imports use this
 > path throughout your code.
 
 ## Quick Start
@@ -22,7 +22,7 @@ go get github.com/specific-ai-org/specificai-go-sdk@latest
 ```bash
 mkdir my-specificai-app && cd my-specificai-app
 go mod init my-specificai-app
-go get github.com/specific-ai-org/specificai-go-sdk@latest
+go get github.com/marketplace-specificai/go-specific-ai-sdk@latest
 ```
 
 ### 2. Create `main.go`
@@ -35,8 +35,8 @@ import (
     "fmt"
     "log"
 
-    specificai "github.com/specific-ai-org/specificai-go-sdk"
-    "github.com/specific-ai-org/specificai-go-sdk/inference"
+    specificai "github.com/marketplace-specificai/go-specific-ai-sdk"
+    "github.com/marketplace-specificai/go-specific-ai-sdk/inference"
 )
 
 func main() {
@@ -116,7 +116,7 @@ SpecificAI gateway to your deployed Triton models.
 ### OpenAI wrapper with SpecificAI tracing
 
 ```go
-import "github.com/specific-ai-org/specificai-go-sdk/inference"
+import "github.com/marketplace-specificai/go-specific-ai-sdk/inference"
 
 client, _ := inference.NewOpenAIClient(inference.OpenAIClientConfig{
     APIKey:              "sk-...",
@@ -131,7 +131,7 @@ resp, _ := client.CreateChatCompletion(ctx, "gpt-4o", messages, "task", "project
 ### Anthropic wrapper with SpecificAI tracing
 
 ```go
-import "github.com/specific-ai-org/specificai-go-sdk/inference"
+import "github.com/marketplace-specificai/go-specific-ai-sdk/inference"
 
 client, _ := inference.NewAnthropicClient(inference.AnthropicClientConfig{
     APIKey:        "sk-ant-...",
@@ -160,7 +160,7 @@ metrics, _ := client.Models.GetMetrics(ctx, taskID)
 The SDK returns typed errors for common failure modes:
 
 ```go
-import specificai "github.com/specific-ai-org/specificai-go-sdk"
+import specificai "github.com/marketplace-specificai/go-specific-ai-sdk"
 
 resp, err := client.Create(ctx, message, task, project)
 if err != nil {
