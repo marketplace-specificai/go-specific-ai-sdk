@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/optune-ai/optune/go-sdk/inference"
+	"github.com/marketplace-specificai/go-specific-ai-sdk/inference"
 )
 
 func requiredEnv(t *testing.T, key string) string {
