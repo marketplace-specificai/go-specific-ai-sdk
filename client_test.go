@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/marketplace-specificai/go-specific-ai-sdk/inference"
 )
 
 func TestNewClient_RequiresConfig(t *testing.T) {
@@ -64,6 +66,89 @@ func TestNewClient_InferenceMode(t *testing.T) {
 	}
 	if client.Tasks != nil {
 		t.Fatal("expected Tasks to be nil in inference-only mode")
+	}
+}
+
+// tritonHandler serves a minimal Triton classification response and records the
+// path it was asked for, so tests can assert which base URL was used.
+func tritonHandler(t *testing.T, gotPath *string) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		*gotPath = r.URL.Path
+		result, err := json.Marshal(map[string]any{
+			"task_type":   "ClassificationResponse",
+			"labels":      []string{"Positive"},
+			"confidences": map[string]float64{"Positive": 1},
+		})
+		if err != nil {
+			t.Errorf("marshal model result: %v", err)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"outputs": []map[string]any{
+				{"name": "result", "data": []string{string(result)}},
+				{"name": "raw_logits", "data": []float64{0.5}},
+			},
+		})
+	}
+}
+
+func TestWithInferenceURL(t *testing.T) {
+	t.Setenv("SPECIFIC_AI_BASE_URL", "")
+	t.Setenv("SPECIFIC_AI_API_KEY", "")
+
+	var gotPath string
+	srv := httptest.NewServer(tritonHandler(t, &gotPath))
+	defer srv.Close()
+
+	// WithInferenceURL alone must be enough to run inference, and the URL must
+	// be used verbatim as the Triton base — no /public/triton is appended,
+	// because there is no gateway in front of it.
+	client, err := NewClient(WithInferenceURL(srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	resp, err := client.Create(context.Background(), "the prompt", "my_task", "my_project")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	classification, ok := resp.(*inference.ClassificationResponse)
+	if !ok {
+		t.Fatalf("expected *inference.ClassificationResponse, got %T", resp)
+	}
+	if len(classification.Labels) != 1 || classification.Labels[0] != "Positive" {
+		t.Fatalf("expected labels=[Positive], got %v", classification.Labels)
+	}
+	if want := "/v2/models/model_my_project_my_task/infer"; gotPath != want {
+		t.Fatalf("expected the inference URL to be used verbatim (%s), got %s", want, gotPath)
+	}
+}
+
+func TestWithInferenceURL_UnsetDerivesGatewayTritonPath(t *testing.T) {
+	t.Setenv("SPECIFIC_AI_BASE_URL", "")
+	t.Setenv("SPECIFIC_AI_API_KEY", "")
+
+	var gotPath string
+	srv := httptest.NewServer(tritonHandler(t, &gotPath))
+	defer srv.Close()
+
+	// Without WithInferenceURL the Triton base is derived from the gateway root,
+	// which means /api is stripped and /public/triton added.
+	client, err := NewClient(WithBaseURL(srv.URL + "/api"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	if _, err := client.Create(context.Background(), "the prompt", "my_task", "my_project"); err != nil {
+		t.Fatal(err)
+	}
+
+	if want := "/public/triton/v2/models/model_my_project_my_task/infer"; gotPath != want {
+		t.Fatalf("expected derived gateway Triton path %s, got %s", want, gotPath)
 	}
 }
 
