@@ -1,0 +1,91 @@
+name: Build & Publish Go SDK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semver tag to publish (e.g. v0.1.0). Leave empty to auto-bump patch."
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race -count=1 ./...
+
+      - name: Build
+        run: go build ./...
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        run: |
+          MANUAL="${{ github.event.inputs.version }}"
+          if [[ -n "$MANUAL" ]]; then
+            if [[ ! "$MANUAL" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Version must be semver (e.g. v0.1.0), got: $MANUAL"
+              exit 1
+            fi
+            echo "tag=$MANUAL" >> "$GITHUB_OUTPUT"
+          else
+            LATEST=$(git tag -l 'v*' --sort=-v:refname | head -n1)
+            if [[ -z "$LATEST" ]]; then
+              echo "tag=v0.0.1" >> "$GITHUB_OUTPUT"
+            else
+              MAJOR=$(echo "$LATEST" | cut -d. -f1)
+              MINOR=$(echo "$LATEST" | cut -d. -f2)
+              PATCH=$(echo "$LATEST" | cut -d. -f3)
+              echo "tag=${MAJOR}.${MINOR}.$((PATCH + 1))" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Check tag is new
+        run: |
+          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::Tag ${{ steps.version.outputs.tag }} already exists"
+            exit 1
+          fi
+
+      - name: Tag and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Trigger Go module proxy indexing
+        run: |
+          GOPROXY_URL="https://proxy.golang.org/github.com/marketplace-specificai/go-specific-ai-sdk/@v/${{ steps.version.outputs.tag }}.info"
+          echo "Requesting proxy indexing: $GOPROXY_URL"
+          curl -sS "$GOPROXY_URL" || true
+
+      - name: Summary
+        run: |
+          echo "### Published ${{ steps.version.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "go get github.com/marketplace-specificai/go-specific-ai-sdk@${{ steps.version.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
