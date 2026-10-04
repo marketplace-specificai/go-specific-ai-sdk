@@ -18,6 +18,9 @@ type TrainingManager struct {
 // StartParams holds parameters for starting a training run.
 type StartParams struct {
 	TaskID             string
+	// BaseModelName pins the base model to train. Leave it empty for
+	// Automatic, where the trainer picks the base model; an unsupported
+	// model fails the training with an explanatory status message.
 	BaseModelName      string
 	TrainRatio         int
 	ValidationRatio    int
@@ -30,9 +33,6 @@ type StartParams struct {
 
 // Start starts a training run for a task.
 func (m *TrainingManager) Start(ctx context.Context, params StartParams) (*StartTrainingResponse, error) {
-	if params.BaseModelName == "" {
-		params.BaseModelName = "bert-base-uncased"
-	}
 	if params.TrainRatio == 0 {
 		params.TrainRatio = 70
 	}
@@ -89,7 +89,6 @@ func (m *TrainingManager) Start(ctx context.Context, params StartParams) (*Start
 		"benchmarks":                task.Benchmarks,
 		"teacher_model":             task.TeacherModel,
 		"task_type":                 task.TaskType,
-		"base_distilled_model":      params.BaseModelName,
 		"instruction":               task.Prompt,
 		"version":                   newVersion,
 		"parser_function":           task.ParserFunction,
@@ -111,7 +110,7 @@ func (m *TrainingManager) Start(ctx context.Context, params StartParams) (*Start
 		"client_id":                  m.clientID,
 		"version":                   newVersion,
 		"llm_usecase_id":            params.TaskID,
-		"base_model_name":           params.BaseModelName,
+		"task_type":                 task.TaskType,
 		"distillation_event_id":     "",
 		"training_params": map[string]any{
 			"train_ratio":      params.TrainRatio,
@@ -121,6 +120,10 @@ func (m *TrainingManager) Start(ctx context.Context, params StartParams) (*Start
 		},
 		"hardware_device":            params.HardwareDevice,
 		"model_evaluation_arguments": modelEvalArgs,
+	}
+	if params.BaseModelName != "" {
+		distillationEvent["base_distilled_model"] = params.BaseModelName
+		training["base_model_name"] = params.BaseModelName
 	}
 
 	return m.StartWithPayloads(ctx, distillationEvent, training)
@@ -242,13 +245,15 @@ func validateTaskReadyForTraining(task *Task) error {
 	if len(task.Datasets) == 0 {
 		return fmt.Errorf("task not ready: no datasets associated")
 	}
-	if task.Prompt == "" || task.TeacherModel == "" {
-		return fmt.Errorf("task not ready: missing prompt and/or teacher_model")
+	if task.Prompt == "" {
+		return fmt.Errorf("task not ready: missing prompt")
 	}
-	comparisonMode := task.ComparisonMode != nil && *task.ComparisonMode
-	if comparisonMode &&
-		(task.ComparisonModeOption == "all" || task.ComparisonModeOption == "teacher") &&
-		task.ParserFunction == "" {
+	comparesWithTeacher := task.ComparisonMode != nil && *task.ComparisonMode &&
+		(task.ComparisonModeOption == "all" || task.ComparisonModeOption == "teacher")
+	if comparesWithTeacher && task.TeacherModel == "" {
+		return fmt.Errorf("task not ready: comparison mode with teacher/all requires teacher_model")
+	}
+	if comparesWithTeacher && task.ParserFunction == "" {
 		return fmt.Errorf("task not ready: comparison mode requires parser_function")
 	}
 	return nil
