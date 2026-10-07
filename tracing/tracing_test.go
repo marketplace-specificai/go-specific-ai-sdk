@@ -20,13 +20,16 @@ func TestCollector_SendsTrace(t *testing.T) {
 		if r.Header.Get("Content-Type") != "application/json" {
 			t.Errorf("expected json content type, got %s", r.Header.Get("Content-Type"))
 		}
+		if r.Header.Get("Authorization") != "Bearer sk_test" {
+			t.Errorf("expected API key header, got %q", r.Header.Get("Authorization"))
+		}
 		json.NewDecoder(r.Body).Decode(&lastBody)
 		received.Add(1)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL)
+	c := NewWithAPIKey(srv.URL, "sk_test")
 	c.Collect(Record{
 		ModelName:    "gpt-4",
 		Prompt:       "hello",

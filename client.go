@@ -116,7 +116,7 @@ func NewClient(opts ...Option) (*Client, error) {
 	// explicit logging via Log. It only needs the gateway root, so create it
 	// whenever a base URL is available, independent of the trace flag.
 	if baseURL != "" {
-		c.tracer = tracing.New(gatewayRoot(baseURL))
+		c.tracer = tracing.NewWithAPIKey(gatewayRoot(baseURL), cfg.apiKey)
 	}
 
 	if c.platform == nil && c.inference == nil {

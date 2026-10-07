@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 )
@@ -34,17 +35,25 @@ type Record struct {
 // Collector sends trace records to the SpecificAI platform in the background.
 type Collector struct {
 	endpoint   string
+	apiKey     string
 	httpClient *http.Client
 	ch         chan Record
 	wg         sync.WaitGroup
 	done       chan struct{}
 }
 
-// New creates a new trace collector that posts to {baseURL}/public/api/collect_raw_data.
+// New creates a new trace collector that posts to {baseURL}/public/api/collect_raw_data,
+// authenticating with the SPECIFIC_AI_API_KEY environment variable.
 func New(baseURL string) *Collector {
+	return NewWithAPIKey(baseURL, os.Getenv("SPECIFIC_AI_API_KEY"))
+}
+
+// NewWithAPIKey is New with an explicit SpecificAI API key; the endpoint rejects unauthenticated traces.
+func NewWithAPIKey(baseURL, apiKey string) *Collector {
 	endpoint := baseURL + "/public/api/collect_raw_data"
 	c := &Collector{
 		endpoint:   endpoint,
+		apiKey:     apiKey,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		ch:         make(chan Record, 256),
 		done:       make(chan struct{}),
@@ -108,6 +117,9 @@ func (c *Collector) send(r Record) {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
