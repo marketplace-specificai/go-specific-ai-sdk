@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/marketplace-specificai/go-specific-ai-sdk/internal/httpclient"
 )
@@ -26,6 +27,11 @@ type StartParams struct {
 	ValidationRatio    int
 	MetricOptimization string
 	BetaForFscore      float64
+	// RareClassLabel is the "Optimize on" label for two-label classification.
+	// Empty omits rare_class_label. When set, training selects on that label's
+	// PR AUC. Training samples that label as 20% of each epoch when it is
+	// rarer than that.
+	RareClassLabel     string
 	HardwareDevice     string
 	TrainingArguments  map[string]any
 	CommitHash         string
@@ -71,6 +77,9 @@ func (m *TrainingManager) Start(ctx context.Context, params StartParams) (*Start
 	modelEvalArgs := map[string]any{"optimization_metric": params.MetricOptimization}
 	if params.MetricOptimization == "f_beta_score" {
 		modelEvalArgs["f_score_metric_beta_coefficient"] = params.BetaForFscore
+	}
+	if rareClassLabel := strings.TrimSpace(params.RareClassLabel); rareClassLabel != "" {
+		modelEvalArgs["rare_class_label"] = rareClassLabel
 	}
 
 	comparisonMode := false
