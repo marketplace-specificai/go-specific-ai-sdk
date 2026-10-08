@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/marketplace-specificai/go-specific-ai-sdk/internal/httpclient"
 )
@@ -18,11 +19,19 @@ type TrainingManager struct {
 // StartParams holds parameters for starting a training run.
 type StartParams struct {
 	TaskID             string
+	// BaseModelName pins the base model to train. Leave it empty for
+	// Automatic, where the trainer picks the base model; an unsupported
+	// model fails the training with an explanatory status message.
 	BaseModelName      string
 	TrainRatio         int
 	ValidationRatio    int
 	MetricOptimization string
 	BetaForFscore      float64
+	// RareClassLabel is the "Optimize on" label for two-label classification.
+	// Empty omits rare_class_label. When set, training selects on that label's
+	// PR AUC. Training samples that label as 20% of each epoch when it is
+	// rarer than that.
+	RareClassLabel     string
 	HardwareDevice     string
 	TrainingArguments  map[string]any
 	CommitHash         string
@@ -30,9 +39,6 @@ type StartParams struct {
 
 // Start starts a training run for a task.
 func (m *TrainingManager) Start(ctx context.Context, params StartParams) (*StartTrainingResponse, error) {
-	if params.BaseModelName == "" {
-		params.BaseModelName = "bert-base-uncased"
-	}
 	if params.TrainRatio == 0 {
 		params.TrainRatio = 70
 	}
@@ -72,6 +78,9 @@ func (m *TrainingManager) Start(ctx context.Context, params StartParams) (*Start
 	if params.MetricOptimization == "f_beta_score" {
 		modelEvalArgs["f_score_metric_beta_coefficient"] = params.BetaForFscore
 	}
+	if rareClassLabel := strings.TrimSpace(params.RareClassLabel); rareClassLabel != "" {
+		modelEvalArgs["rare_class_label"] = rareClassLabel
+	}
 
 	comparisonMode := false
 	if task.ComparisonMode != nil {
@@ -89,7 +98,6 @@ func (m *TrainingManager) Start(ctx context.Context, params StartParams) (*Start
 		"benchmarks":                task.Benchmarks,
 		"teacher_model":             task.TeacherModel,
 		"task_type":                 task.TaskType,
-		"base_distilled_model":      params.BaseModelName,
 		"instruction":               task.Prompt,
 		"version":                   newVersion,
 		"parser_function":           task.ParserFunction,
@@ -111,7 +119,7 @@ func (m *TrainingManager) Start(ctx context.Context, params StartParams) (*Start
 		"client_id":                  m.clientID,
 		"version":                   newVersion,
 		"llm_usecase_id":            params.TaskID,
-		"base_model_name":           params.BaseModelName,
+		"task_type":                 task.TaskType,
 		"distillation_event_id":     "",
 		"training_params": map[string]any{
 			"train_ratio":      params.TrainRatio,
@@ -121,6 +129,10 @@ func (m *TrainingManager) Start(ctx context.Context, params StartParams) (*Start
 		},
 		"hardware_device":            params.HardwareDevice,
 		"model_evaluation_arguments": modelEvalArgs,
+	}
+	if params.BaseModelName != "" {
+		distillationEvent["base_distilled_model"] = params.BaseModelName
+		training["base_model_name"] = params.BaseModelName
 	}
 
 	return m.StartWithPayloads(ctx, distillationEvent, training)
@@ -242,13 +254,15 @@ func validateTaskReadyForTraining(task *Task) error {
 	if len(task.Datasets) == 0 {
 		return fmt.Errorf("task not ready: no datasets associated")
 	}
-	if task.Prompt == "" || task.TeacherModel == "" {
-		return fmt.Errorf("task not ready: missing prompt and/or teacher_model")
+	if task.Prompt == "" {
+		return fmt.Errorf("task not ready: missing prompt")
 	}
-	comparisonMode := task.ComparisonMode != nil && *task.ComparisonMode
-	if comparisonMode &&
-		(task.ComparisonModeOption == "all" || task.ComparisonModeOption == "teacher") &&
-		task.ParserFunction == "" {
+	comparesWithTeacher := task.ComparisonMode != nil && *task.ComparisonMode &&
+		(task.ComparisonModeOption == "all" || task.ComparisonModeOption == "teacher")
+	if comparesWithTeacher && task.TeacherModel == "" {
+		return fmt.Errorf("task not ready: comparison mode with teacher/all requires teacher_model")
+	}
+	if comparesWithTeacher && task.ParserFunction == "" {
 		return fmt.Errorf("task not ready: comparison mode requires parser_function")
 	}
 	return nil

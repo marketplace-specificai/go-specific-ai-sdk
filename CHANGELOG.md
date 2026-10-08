@@ -13,12 +13,29 @@ The rows below for published versions were verified by downloading the module
 zips from `proxy.golang.org` and grepping them, not by reading this repository.
 Module path: `github.com/marketplace-specificai/go-specific-ai-sdk`.
 
-## [v0.0.5] - Unreleased
+## [v0.1.0] - Unreleased
 
-No API change. The Go SDK was **not** affected by the publish drift that
-motivated this release cycle: `WithInferenceURL` has been in every published
-version since v0.0.3, so Go customers have always had direct-Triton inference.
-Go is the reference for what the other two SDKs should look like, not a victim.
+The Go SDK was **not** affected by the publish drift that motivated this
+release cycle: `WithInferenceURL` has been in every published version since
+v0.0.3, so Go customers have always had direct-Triton inference. Go is the
+reference for what the other two SDKs should look like, not a victim.
+
+The minor bump (planned as v0.0.5) is for the one behaviour change below: an
+empty `BaseModelName` no longer means BERT.
+
+### Changed
+
+- `TrainingManager.Start` no longer defaults `StartParams.BaseModelName` to
+  `"bert-base-uncased"`. Empty now means **Automatic**: the SDK omits
+  `base_distilled_model` and `base_model_name`, and the trainer picks the base
+  model (hyperparameter search for encoder tasks, the default decoder for
+  summarization and generation). A non-empty value pins that model, and an
+  unsupported one fails the training with an explanatory status message.
+  Callers that relied on the old default and want BERT must now set
+  `BaseModelName: "bert-base-uncased"` explicitly. v0.0.4 and earlier still
+  send it, and the platform now treats it as a pinned choice rather than a
+  placeholder.
+- `Start` sends `task_type` on the training payload too.
 
 ### Added
 
@@ -40,13 +57,14 @@ Go is the reference for what the other two SDKs should look like, not a victim.
 | Task types — classification, NER, generation | Yes |
 | OpenAI and Anthropic wrappers | Yes |
 | Session-cookie auth — `WithSessionCookie` | Yes |
+| Automatic base-model selection — empty `BaseModelName` | **Yes — first release with it** |
 | Published to the Go module proxy | **No — pending** |
 
-Publishing v0.0.5 is **not** automatic. `.github/workflows/go_sdk_publish.yml`
+Publishing v0.1.0 is **not** automatic. `.github/workflows/go_sdk_publish.yml`
 syncs to `specific-ai-org/specificai-go-sdk`, which is neither the module path in
 `go.mod` nor a repository that currently resolves; its only run to date
 (2026-06-22) exited early because `GO_SDK_MIRROR_DEPLOY_KEY` is unset. Cut this
-release with `./publish.sh v0.0.5` until that automation is repointed.
+release with `./publish.sh v0.1.0` until that automation is repointed.
 
 ## [v0.0.4] - 2026-06-22
 
