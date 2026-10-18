@@ -45,11 +45,15 @@ type Collector struct {
 // New creates a new trace collector that posts to {baseURL}/public/api/collect_raw_data,
 // authenticating with the SPECIFIC_AI_API_KEY environment variable.
 func New(baseURL string) *Collector {
-	return NewWithAPIKey(baseURL, os.Getenv("SPECIFIC_AI_API_KEY"))
+	return NewWithAPIKey(baseURL, "")
 }
 
-// NewWithAPIKey is New with an explicit SpecificAI API key; the endpoint rejects unauthenticated traces.
+// NewWithAPIKey is New with an explicit SpecificAI API key, falling back to
+// SPECIFIC_AI_API_KEY when apiKey is empty; the endpoint rejects unauthenticated traces.
 func NewWithAPIKey(baseURL, apiKey string) *Collector {
+	if apiKey == "" {
+		apiKey = os.Getenv("SPECIFIC_AI_API_KEY")
+	}
 	endpoint := baseURL + "/public/api/collect_raw_data"
 	c := &Collector{
 		endpoint:   endpoint,

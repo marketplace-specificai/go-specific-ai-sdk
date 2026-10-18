@@ -63,6 +63,8 @@ type OpenAIClientConfig struct {
 	APIKey                    string
 	OpenAIURL                 string
 	SpecificAIURL             string
+	// SpecificAIAPIKey authenticates SpecificAI inference and traces; defaults to SPECIFIC_AI_API_KEY.
+	SpecificAIAPIKey          string
 	UseSpecificAIInference    bool
 	ParseSpecificAIResponse   ParseSpecificAIResponseFunc
 }
@@ -99,11 +101,11 @@ func NewOpenAIClient(cfg OpenAIClientConfig) (*OpenAIClient, error) {
 		specificAIURL:          cfg.SpecificAIURL,
 		useSpecificAIInference: cfg.UseSpecificAIInference,
 		parseResponse:          cfg.ParseSpecificAIResponse,
-		tracer:                 tracing.New(cfg.SpecificAIURL),
+		tracer:                 tracing.NewWithAPIKey(cfg.SpecificAIURL, cfg.SpecificAIAPIKey),
 		httpClient:             &http.Client{Timeout: 60 * time.Second},
 	}
 	if cfg.UseSpecificAIInference {
-		c.inference = NewClient(cfg.SpecificAIURL, "")
+		c.inference = NewClientWithAPIKey(cfg.SpecificAIURL, "", cfg.SpecificAIAPIKey)
 	}
 	return c, nil
 }

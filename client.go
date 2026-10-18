@@ -105,7 +105,7 @@ func NewClient(opts ...Option) (*Client, error) {
 	inferenceURL := strings.TrimRight(cfg.inferenceURL, "/")
 
 	if baseURL != "" || inferenceURL != "" {
-		c.inference = inference.NewClient(baseURL, inferenceURL)
+		c.inference = inference.NewClientWithAPIKey(baseURL, inferenceURL, cfg.apiKey)
 	}
 
 	if cfg.trace && baseURL == "" {

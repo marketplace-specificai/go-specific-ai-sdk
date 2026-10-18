@@ -43,6 +43,14 @@ empty `BaseModelName` no longer means BERT.
   verbatim as the Triton base, that a client built with `WithInferenceURL` alone
   (no `WithBaseURL`) can run inference, and that omitting it derives
   `{gatewayRoot}/public/triton` instead.
+- `SpecificAIAPIKey` on `OpenAIClientConfig` and `AnthropicClientConfig`, so
+  wrapper traces to the authenticated `collect_raw_data` route can carry an
+  explicit key. `tracing.NewWithAPIKey` now falls back to `SPECIFIC_AI_API_KEY`
+  when the key is empty, so existing env-var setups keep working.
+- Triton inference requests send the API key as `Authorization: Bearer`
+  (`WithAPIKey`, `SpecificAIAPIKey`, or `SPECIFIC_AI_API_KEY`). New
+  `inference.NewClientWithAPIKey`; `inference.NewClient` keeps its signature
+  and reads the env var.
 - This changelog.
 
 ### Capabilities

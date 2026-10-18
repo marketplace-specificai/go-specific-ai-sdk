@@ -74,6 +74,31 @@ func TestInfer_Classification(t *testing.T) {
 	}
 }
 
+func TestInfer_SendsAPIKey(t *testing.T) {
+	t.Setenv("SPECIFIC_AI_API_KEY", "sk_env")
+	var auth []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = append(auth, r.Header.Get("Authorization"))
+		resultJSON, _ := json.Marshal(map[string]any{
+			"task_type": "GenerationResponse",
+			"response":  map[string]any{"response": "ok"},
+		})
+		json.NewEncoder(w).Encode(map[string]any{
+			"outputs": []map[string]any{{"name": "result", "data": []string{string(resultJSON)}}},
+		})
+	}))
+	defer srv.Close()
+
+	for _, client := range []*Client{NewClientWithAPIKey("", srv.URL, "sk_explicit"), NewClient("", srv.URL)} {
+		if _, _, err := client.Infer(context.Background(), "hi", "task", "project"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if len(auth) != 2 || auth[0] != "Bearer sk_explicit" || auth[1] != "Bearer sk_env" {
+		t.Fatalf("expected explicit then env Bearer keys, got %v", auth)
+	}
+}
+
 func TestInfer_Generation(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		result := map[string]any{

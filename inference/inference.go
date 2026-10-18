@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -48,6 +49,7 @@ type tritonResponse struct {
 type Client struct {
 	baseURL      string
 	inferenceURL string
+	apiKey       string
 	http         *http.Client
 }
 
@@ -55,9 +57,19 @@ type Client struct {
 // baseURL is the SpecificAI gateway URL.
 // inferenceURL is an optional direct inference (Triton) URL; when set it takes precedence.
 func NewClient(baseURL, inferenceURL string) *Client {
+	return NewClientWithAPIKey(baseURL, inferenceURL, "")
+}
+
+// NewClientWithAPIKey is NewClient with a SpecificAI API key sent as a Bearer token,
+// falling back to SPECIFIC_AI_API_KEY when apiKey is empty.
+func NewClientWithAPIKey(baseURL, inferenceURL, apiKey string) *Client {
+	if apiKey == "" {
+		apiKey = os.Getenv("SPECIFIC_AI_API_KEY")
+	}
 	return &Client{
 		baseURL:      strings.TrimRight(baseURL, "/"),
 		inferenceURL: strings.TrimRight(inferenceURL, "/"),
+		apiKey:       apiKey,
 		http:         &http.Client{Timeout: 30 * time.Second},
 	}
 }
@@ -117,6 +129,9 @@ func (c *Client) modelInference(ctx context.Context, modelName, inputText string
 		return nil, nil, fmt.Errorf("create inference request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {

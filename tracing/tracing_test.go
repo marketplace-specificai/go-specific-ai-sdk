@@ -54,6 +54,25 @@ func TestCollector_SendsTrace(t *testing.T) {
 	}
 }
 
+func TestCollector_EmptyAPIKeyFallsBackToEnv(t *testing.T) {
+	t.Setenv("SPECIFIC_AI_API_KEY", "sk_env")
+	var auth atomic.Value
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth.Store(r.Header.Get("Authorization"))
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	c := NewWithAPIKey(srv.URL, "")
+	c.Collect(Record{ModelName: "test", UsecaseName: "t", UsecaseGroup: "g"})
+	c.Close()
+
+	if got := auth.Load(); got != "Bearer sk_env" {
+		t.Fatalf("expected env API key header, got %v", got)
+	}
+}
+
 func TestCollector_DefaultsDatasets(t *testing.T) {
 	var lastBody map[string]any
 

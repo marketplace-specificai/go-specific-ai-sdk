@@ -121,6 +121,7 @@ import "github.com/marketplace-specificai/go-specific-ai-sdk/inference"
 client, _ := inference.NewOpenAIClient(inference.OpenAIClientConfig{
     APIKey:              "sk-...",
     SpecificAIURL:       "https://your-instance.specific.ai",
+    SpecificAIAPIKey:    "sk_...", // authenticates SpecificAI inference and traces; defaults to $SPECIFIC_AI_API_KEY
     UseSpecificInference: true,
 })
 defer client.Close()
@@ -134,8 +135,9 @@ resp, _ := client.CreateChatCompletion(ctx, "gpt-4o", messages, "task", "project
 import "github.com/marketplace-specificai/go-specific-ai-sdk/inference"
 
 client, _ := inference.NewAnthropicClient(inference.AnthropicClientConfig{
-    APIKey:        "sk-ant-...",
-    SpecificAIURL: "https://your-instance.specific.ai",
+    APIKey:           "sk-ant-...",
+    SpecificAIURL:    "https://your-instance.specific.ai",
+    SpecificAIAPIKey: "sk_...", // authenticates SpecificAI inference and traces; defaults to $SPECIFIC_AI_API_KEY
 })
 defer client.Close()
 

@@ -113,8 +113,9 @@ Wraps OpenAI Chat Completions with automatic tracing. Optionally routes through 
 import "github.com/marketplace-specificai/go-specific-ai-sdk/inference"
 
 client, _ := inference.NewOpenAIClient(inference.OpenAIClientConfig{
-    APIKey:        "sk-your-openai-key",
-    SpecificAIURL: "https://platform.specific.ai",
+    APIKey:           "sk-your-openai-key",
+    SpecificAIURL:    "https://platform.specific.ai",
+    SpecificAIAPIKey: "sk_...", // authenticates SpecificAI inference and traces; defaults to $SPECIFIC_AI_API_KEY
 })
 defer client.Close()
 
@@ -129,8 +130,9 @@ fmt.Println(resp.Choices[0].Message.Content)
 
 ```go
 client, _ := inference.NewAnthropicClient(inference.AnthropicClientConfig{
-    APIKey:        "sk-ant-your-key",
-    SpecificAIURL: "https://platform.specific.ai",
+    APIKey:           "sk-ant-your-key",
+    SpecificAIURL:    "https://platform.specific.ai",
+    SpecificAIAPIKey: "sk_...", // authenticates SpecificAI inference and traces; defaults to $SPECIFIC_AI_API_KEY
 })
 defer client.Close()
 
