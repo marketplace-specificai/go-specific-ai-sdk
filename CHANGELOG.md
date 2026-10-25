@@ -36,6 +36,29 @@ empty `BaseModelName` no longer means BERT.
   send it, and the platform now treats it as a pinned choice rather than a
   placeholder.
 - `Start` sends `task_type` on the training payload too.
+- `inference.Client` asks the platform which path to use, instead of assuming
+  `{gatewayRoot}/public/triton`. On the SpecificAI-hosted platform that path
+  names the workspace a model was deployed from, so that two customers
+  deploying the same project and task name get one URL each. The client fetches
+  it once on its first `Infer` (`GET {gatewayRoot}/public/api/inference_path`,
+  authenticated with the API key it already holds) and keeps the answer, so
+  **no caller code changes and nobody handles a workspace id**. Against a
+  self-hosted install the answer is the un-scoped prefix and every URL is
+  byte-identical to before; a lookup that cannot be made — an older backend, or
+  a blip — leaves the client on that prefix and is retried rather than cached.
+  `WithInferenceURL` is untouched: a Triton you point at directly is never
+  looked up.
+- `inference.Client` follows a redirect as a POST. A gateway that terminates TLS
+  answers plain HTTP with a 301, and Go's default client retries a redirected
+  POST as a bodiless GET with no `Authorization` header, so a `BaseURL` typed
+  with `http://` used to fail with something unrelated to the real mistake. The
+  platform client has handled this since it was written; the inference client
+  did not. Nothing is rewritten, so `WithInferenceURL("http://triton:8000")` —
+  a Triton with no HTTPS listener — is unaffected. Only the host that was asked
+  is followed, and never back down to HTTP: replaying by hand skips the header
+  stripping `net/http` does across hosts, so an unrelated `Location` would
+  otherwise receive the API key and the prompt. A refused hop returns an error
+  naming both URLs rather than being followed.
 
 ### Added
 
