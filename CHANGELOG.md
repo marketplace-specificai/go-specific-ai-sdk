@@ -91,11 +91,10 @@ empty `BaseModelName` no longer means BERT.
 | Automatic base-model selection — empty `BaseModelName` | **Yes — first release with it** |
 | Published to the Go module proxy | **No — pending** |
 
-Publishing v0.1.0 is **not** automatic. `.github/workflows/go_sdk_publish.yml`
-syncs to `specific-ai-org/specificai-go-sdk`, which is neither the module path in
-`go.mod` nor a repository that currently resolves; its only run to date
-(2026-06-22) exited early because `GO_SDK_MIRROR_DEPLOY_KEY` is unset. Cut this
-release with `./publish.sh v0.1.0` until that automation is repointed.
+v0.1.0 is the first release that CI publishes and tags, from the version in this
+heading. This repository's `.github/workflows/build.yml` now only builds and tests:
+it no longer tags a patch release on every push to `main`, which would have
+released each version twice.
 
 ## [v0.0.4] - 2026-06-22
 
