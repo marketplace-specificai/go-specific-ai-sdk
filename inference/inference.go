@@ -63,6 +63,11 @@ type Client struct {
 	// calls make one request rather than one each.
 	mu       sync.Mutex
 	basePath string
+
+	// endpointURL is the direct inference-gateway endpoint URL from
+	// ModelManager.GetEndpoint(). When set it skips platform discovery entirely.
+	// Format: https://inference.specific.ai/endpoints/{endpoint_id}
+	endpointURL string
 }
 
 // NewClient creates a new inference client.
@@ -70,6 +75,31 @@ type Client struct {
 // inferenceURL is an optional direct inference (Triton) URL; when set it takes precedence.
 func NewClient(baseURL, inferenceURL string) *Client {
 	return NewClientWithAPIKey(baseURL, inferenceURL, "")
+}
+
+// NewClientWithEndpoint creates a Client that sends inference requests directly to the
+// inference-gateway endpoint URL returned by platform.ModelManager.GetEndpoint().
+// This bypasses the platform discovery call (GET /public/api/inference_path) entirely,
+// which eliminates one round-trip per cold-start and all latency from the backend proxy.
+//
+//	ep, _ := platformClient.Models.GetEndpoint(ctx, taskID)
+//	c := inference.NewClientWithEndpoint(ep.EndpointURL, apiKey)
+//	c.Infer(ctx, "hello", taskName, projectName)
+func NewClientWithEndpoint(endpointURL, apiKey string) *Client {
+	if apiKey == "" {
+		apiKey = os.Getenv("SPECIFIC_AI_API_KEY")
+	}
+	c := &Client{
+		endpointURL: strings.TrimRight(endpointURL, "/"),
+		apiKey:      apiKey,
+		http: &http.Client{
+			Timeout: 30 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+	}
+	return c
 }
 
 // NewClientWithAPIKey is NewClient with a SpecificAI API key sent as a Bearer token,
@@ -244,12 +274,14 @@ func (c *Client) fetchBasePath(ctx context.Context, root string) string {
 
 // inferenceBase returns the URL a model's /v2/models/... hangs off.
 //
-// On hosted SaaS it ends in the workspace that deployed the model, which is what
-// keeps two tenants' identically named models apart. Customers are never shown
-// their workspace id, so the API key is what reveals it. An inferenceURL the
-// caller configured points at a Triton of their own, which this platform neither
-// routes nor scopes, and is used as given.
+// Resolution order:
+//  1. endpointURL — direct inference-gateway path (from ModelManager.GetEndpoint).
+//  2. inferenceURL — a Triton the caller manages themselves.
+//  3. Platform-resolved prefix via GET /public/api/inference_path (legacy path).
 func (c *Client) inferenceBase(ctx context.Context) string {
+	if c.endpointURL != "" {
+		return c.endpointURL
+	}
 	if c.inferenceURL != "" {
 		return c.inferenceURL
 	}
