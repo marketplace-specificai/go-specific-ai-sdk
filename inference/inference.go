@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -20,7 +21,10 @@ import (
 // segment the platform appends for its own tenants.
 const publicPrefix = "/public/triton"
 
-var unsafeChars = regexp.MustCompile(`[^a-zA-Z0-9_\-.]`)
+var (
+	unsafeChars            = regexp.MustCompile(`[^a-zA-Z0-9_\-.]`)
+	warnLegacyDiscoveryOnce sync.Once
+)
 
 func sanitizeNamePart(part string) string {
 	return unsafeChars.ReplaceAllString(part, "_")
@@ -292,6 +296,12 @@ func (c *Client) inferenceBase(ctx context.Context) string {
 	if cached != "" {
 		return root + cached
 	}
+	warnLegacyDiscoveryOnce.Do(func() {
+		log.Println("[SpecificAI SDK] Auto-discovery of the inference path via /public/api/inference_path " +
+			"is deprecated. Pass the endpoint URL when creating the client instead " +
+			"(obtain it from the platform UI or GET /public/inference-endpoint/{task_id}, " +
+			"then use inference.NewClientWithEndpoint).")
+	})
 	// The lookup runs unlocked on purpose. A mutex does not watch a context, so
 	// holding one across a network call would keep concurrent Infer calls waiting
 	// past their own deadlines, and a lookup that fails caches nothing -- so each
