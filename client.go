@@ -106,6 +106,12 @@ func NewClient(opts ...Option) (*Client, error) {
 
 	if baseURL != "" || inferenceURL != "" {
 		c.inference = inference.NewClientWithAPIKey(baseURL, inferenceURL, cfg.apiKey)
+		if cfg.version != nil {
+			c.inference.SetVersion(*cfg.version)
+		}
+		if cfg.workspaceID != "" {
+			c.inference.SetWorkspace(cfg.workspaceID)
+		}
 	}
 
 	if cfg.trace && baseURL == "" {

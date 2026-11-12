@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	neturl "net/url"
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,10 +21,7 @@ import (
 // segment the platform appends for its own tenants.
 const publicPrefix = "/public/triton"
 
-var (
-	unsafeChars            = regexp.MustCompile(`[^a-zA-Z0-9_\-.]`)
-	warnLegacyDiscoveryOnce sync.Once
-)
+var unsafeChars = regexp.MustCompile(`[^a-zA-Z0-9_\-.]`)
 
 func sanitizeNamePart(part string) string {
 	return unsafeChars.ReplaceAllString(part, "_")
@@ -68,10 +65,21 @@ type Client struct {
 	mu       sync.Mutex
 	basePath string
 
-	// endpointURL is the direct inference-gateway endpoint URL from
-	// ModelManager.GetEndpoint(). When set it skips platform discovery entirely.
-	// Format: https://inference.specific.ai/endpoints/{endpoint_id}
-	endpointURL string
+	// version is the trained version every request asks for, sent in Triton's
+	// own /v2/models/{model}/versions/{version}/... path. Empty sends none.
+	version string
+}
+
+// SetVersion sends every request to trained version v of the task, as
+// /v2/models/{model}/versions/{v}/infer.
+func (c *Client) SetVersion(v int) {
+	c.version = strconv.Itoa(v)
+}
+
+// SetWorkspace sends every request straight to /public/triton/{workspaceID},
+// so no lookup is made first.
+func (c *Client) SetWorkspace(workspaceID string) {
+	c.basePath = publicPrefix + "/" + workspaceID
 }
 
 // NewClient creates a new inference client.
@@ -79,31 +87,6 @@ type Client struct {
 // inferenceURL is an optional direct inference (Triton) URL; when set it takes precedence.
 func NewClient(baseURL, inferenceURL string) *Client {
 	return NewClientWithAPIKey(baseURL, inferenceURL, "")
-}
-
-// NewClientWithEndpoint creates a Client that sends inference requests directly to the
-// inference-gateway endpoint URL returned by platform.ModelManager.GetEndpoint().
-// This bypasses the platform discovery call (GET /public/api/inference_path) entirely,
-// which eliminates one round-trip per cold-start and all latency from the backend proxy.
-//
-//	ep, _ := platformClient.Models.GetEndpoint(ctx, taskID)
-//	c := inference.NewClientWithEndpoint(ep.EndpointURL, apiKey)
-//	c.Infer(ctx, "hello", taskName, projectName)
-func NewClientWithEndpoint(endpointURL, apiKey string) *Client {
-	if apiKey == "" {
-		apiKey = os.Getenv("SPECIFIC_AI_API_KEY")
-	}
-	c := &Client{
-		endpointURL: strings.TrimRight(endpointURL, "/"),
-		apiKey:      apiKey,
-		http: &http.Client{
-			Timeout: 30 * time.Second,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
-	}
-	return c
 }
 
 // NewClientWithAPIKey is NewClient with a SpecificAI API key sent as a Bearer token,
@@ -279,13 +262,10 @@ func (c *Client) fetchBasePath(ctx context.Context, root string) string {
 // inferenceBase returns the URL a model's /v2/models/... hangs off.
 //
 // Resolution order:
-//  1. endpointURL — direct inference-gateway path (from ModelManager.GetEndpoint).
-//  2. inferenceURL — a Triton the caller manages themselves.
-//  3. Platform-resolved prefix via GET /public/api/inference_path (legacy path).
+//  1. inferenceURL — a Triton the caller manages themselves.
+//  2. /public/triton/{workspaceID} when SetWorkspace was called.
+//  3. Platform-resolved prefix via GET /public/api/inference_path.
 func (c *Client) inferenceBase(ctx context.Context) string {
-	if c.endpointURL != "" {
-		return c.endpointURL
-	}
 	if c.inferenceURL != "" {
 		return c.inferenceURL
 	}
@@ -296,12 +276,6 @@ func (c *Client) inferenceBase(ctx context.Context) string {
 	if cached != "" {
 		return root + cached
 	}
-	warnLegacyDiscoveryOnce.Do(func() {
-		log.Println("[SpecificAI SDK] Auto-discovery of the inference path via /public/api/inference_path " +
-			"is deprecated. Pass the endpoint URL when creating the client instead " +
-			"(obtain it from the platform UI or GET /public/inference-endpoint/{task_id}, " +
-			"then use inference.NewClientWithEndpoint).")
-	})
 	// The lookup runs unlocked on purpose. A mutex does not watch a context, so
 	// holding one across a network call would keep concurrent Infer calls waiting
 	// past their own deadlines, and a lookup that fails caches nothing -- so each
@@ -319,7 +293,10 @@ func (c *Client) inferenceBase(ctx context.Context) string {
 }
 
 func (c *Client) modelInference(ctx context.Context, modelName, inputText string) ([]float64, map[string]any, error) {
-	url := fmt.Sprintf("%s/v2/models/%s/infer", c.inferenceBase(ctx), modelName)
+	if c.version == "" {
+		return nil, nil, fmt.Errorf("a version is required: call SetVersion with the trained version of the task to run inference on (e.g. 1)")
+	}
+	url := fmt.Sprintf("%s/v2/models/%s/versions/%s/infer", c.inferenceBase(ctx), modelName, c.version)
 
 	payload := tritonRequest{
 		Inputs: []tritonInput{{

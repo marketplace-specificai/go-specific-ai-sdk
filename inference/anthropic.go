@@ -40,6 +40,8 @@ type AnthropicClientConfig struct {
 	SpecificAIURL             string
 	// SpecificAIAPIKey authenticates SpecificAI inference and traces; defaults to SPECIFIC_AI_API_KEY.
 	SpecificAIAPIKey          string
+	// SpecificAIVersion is the trained version of the task to run inference on (e.g. 1); 0 sends none.
+	SpecificAIVersion         int
 	UseSpecificAIInference    bool
 	ParseSpecificAIResponse   ParseSpecificAIResponseFunc
 }
@@ -81,6 +83,9 @@ func NewAnthropicClient(cfg AnthropicClientConfig) (*AnthropicClient, error) {
 	}
 	if cfg.UseSpecificAIInference {
 		c.inference = NewClientWithAPIKey(cfg.SpecificAIURL, "", cfg.SpecificAIAPIKey)
+		if cfg.SpecificAIVersion != 0 {
+			c.inference.SetVersion(cfg.SpecificAIVersion)
+		}
 	}
 	return c, nil
 }

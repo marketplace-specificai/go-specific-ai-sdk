@@ -161,8 +161,7 @@ type InferenceEndpoint struct {
 // GetEndpoint returns the stable inference endpoint for a deployed task.
 //
 // Calls GET /public/inference-endpoint/{taskID} and returns the endpoint_id
-// together with a ready-to-use endpoint_url. Cache this at deploy time and pass
-// EndpointURL to inference.NewClientWithEndpoint to skip discovery on every call.
+// together with a ready-to-use endpoint_url.
 func (m *ModelManager) GetEndpoint(ctx context.Context, taskID string) (*InferenceEndpoint, error) {
 	var ep InferenceEndpoint
 	err := m.client.DoJSON(ctx, httpclient.RequestParams{

@@ -15,6 +15,8 @@ type clientConfig struct {
 	trace             bool
 	sessionCookie     string
 	sessionCookieName string
+	version           *int
+	workspaceID       string
 }
 
 // WithBaseURL sets the SpecificAI backend base URL.
@@ -49,6 +51,18 @@ func WithTimeout(d time.Duration) Option {
 // through the SpecificAI gateway (WithBaseURL handles that automatically).
 func WithInferenceURL(url string) Option {
 	return func(c *clientConfig) { c.inferenceURL = url }
+}
+
+// WithVersion sets the trained version of the task to run inference on (e.g. 1),
+// sent as /v2/models/{model}/versions/{version}/infer.
+func WithVersion(version int) Option {
+	return func(c *clientConfig) { c.version = &version }
+}
+
+// WithWorkspaceID sets the workspace the task lives in, so inference goes
+// straight to /public/triton/{workspaceID} with no lookup first.
+func WithWorkspaceID(workspaceID string) Option {
+	return func(c *clientConfig) { c.workspaceID = workspaceID }
 }
 
 // WithTrace enables trace collection to the SpecificAI platform.

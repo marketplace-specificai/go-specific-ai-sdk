@@ -104,7 +104,7 @@ func TestWithInferenceURL(t *testing.T) {
 	// WithInferenceURL alone must be enough to run inference, and the URL must
 	// be used verbatim as the Triton base — no /public/triton is appended,
 	// because there is no gateway in front of it.
-	client, err := NewClient(WithInferenceURL(srv.URL))
+	client, err := NewClient(WithInferenceURL(srv.URL), WithVersion(3))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestWithInferenceURL(t *testing.T) {
 	if len(classification.Labels) != 1 || classification.Labels[0] != "Positive" {
 		t.Fatalf("expected labels=[Positive], got %v", classification.Labels)
 	}
-	if want := "/v2/models/model_my_project_my_task/infer"; gotPath != want {
+	if want := "/v2/models/model_my_project_my_task/versions/3/infer"; gotPath != want {
 		t.Fatalf("expected the inference URL to be used verbatim (%s), got %s", want, gotPath)
 	}
 }
@@ -137,7 +137,7 @@ func TestWithInferenceURL_UnsetDerivesGatewayTritonPath(t *testing.T) {
 
 	// Without WithInferenceURL the Triton base is derived from the gateway root,
 	// which means /api is stripped and /public/triton added.
-	client, err := NewClient(WithBaseURL(srv.URL + "/api"))
+	client, err := NewClient(WithBaseURL(srv.URL+"/api"), WithVersion(3))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,8 +147,59 @@ func TestWithInferenceURL_UnsetDerivesGatewayTritonPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if want := "/public/triton/v2/models/model_my_project_my_task/infer"; gotPath != want {
+	if want := "/public/triton/v2/models/model_my_project_my_task/versions/3/infer"; gotPath != want {
 		t.Fatalf("expected derived gateway Triton path %s, got %s", want, gotPath)
+	}
+}
+
+func TestWithVersion_GoesIntoTritonPath(t *testing.T) {
+	t.Setenv("SPECIFIC_AI_BASE_URL", "")
+	t.Setenv("SPECIFIC_AI_API_KEY", "")
+
+	var gotPath string
+	srv := httptest.NewServer(tritonHandler(t, &gotPath))
+	defer srv.Close()
+
+	client, err := NewClient(WithInferenceURL(srv.URL), WithVersion(3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	if _, err := client.Create(context.Background(), "the prompt", "my_task", "my_project"); err != nil {
+		t.Fatal(err)
+	}
+
+	if want := "/v2/models/model_my_project_my_task/versions/3/infer"; gotPath != want {
+		t.Fatalf("expected versioned Triton path %s, got %s", want, gotPath)
+	}
+}
+
+func TestWithWorkspaceID_SkipsTheLookup(t *testing.T) {
+	t.Setenv("SPECIFIC_AI_BASE_URL", "")
+	t.Setenv("SPECIFIC_AI_API_KEY", "")
+
+	var gotPath string
+	requests := 0
+	triton := tritonHandler(t, &gotPath)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		triton(w, r)
+	}))
+	defer srv.Close()
+
+	client, err := NewClient(WithBaseURL(srv.URL), WithWorkspaceID("ws2"), WithVersion(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	if _, err := client.Create(context.Background(), "the prompt", "my_task", "my_project"); err != nil {
+		t.Fatal(err)
+	}
+
+	if want := "/public/triton/ws2/v2/models/model_my_project_my_task/versions/1/infer"; gotPath != want || requests != 1 {
+		t.Fatalf("expected one request to %s, got %d ending at %s", want, requests, gotPath)
 	}
 }
 

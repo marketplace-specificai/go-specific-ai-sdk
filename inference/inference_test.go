@@ -54,6 +54,7 @@ func TestInfer_Classification(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient("", srv.URL)
+	client.SetVersion(3)
 	resp, logits, err := client.Infer(context.Background(), "test text", "my_task", "my_project")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -93,6 +94,7 @@ func TestInfer_SendsAPIKey(t *testing.T) {
 	defer srv.Close()
 
 	for _, client := range []*Client{NewClientWithAPIKey("", srv.URL, "sk_explicit"), NewClient("", srv.URL)} {
+		client.SetVersion(3)
 		if _, _, err := client.Infer(context.Background(), "hi", "task", "project"); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -120,6 +122,7 @@ func TestInfer_Generation(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient("", srv.URL)
+	client.SetVersion(3)
 	resp, _, err := client.Infer(context.Background(), "generate something", "gen_task", "project")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -158,6 +161,7 @@ func TestInfer_NER(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient("", srv.URL)
+	client.SetVersion(3)
 	resp, _, err := client.Infer(context.Background(), "John went home", "ner_task", "project")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -189,6 +193,7 @@ func TestInfer_UnknownTaskType(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient("", srv.URL)
+	client.SetVersion(3)
 	_, _, err := client.Infer(context.Background(), "test", "task", "project")
 	if err == nil {
 		t.Fatal("expected error for unknown task type")
@@ -236,11 +241,12 @@ func TestInfer_BaseURLWithAPISuffix(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL+"/api", "")
+	client.SetVersion(3)
 	_, _, err := client.Infer(context.Background(), "test", "task", "proj")
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := "/public/triton/v2/models/model_proj_task/infer"
+	expected := "/public/triton/v2/models/model_proj_task/versions/3/infer"
 	if capturedPath != expected {
 		t.Fatalf("expected path %s, got %s", expected, capturedPath)
 	}
@@ -279,13 +285,14 @@ func TestInfer_AsksThePlatformWhichWorkspacePathToUse(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClientWithAPIKey(srv.URL, "", "sk-test")
+	client.SetVersion(3)
 	for range 2 {
 		if _, _, err := client.Infer(context.Background(), "test", "task", "proj"); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	expected := "/public/triton/" + workspace + "/v2/models/model_proj_task/infer"
+	expected := "/public/triton/" + workspace + "/v2/models/model_proj_task/versions/3/infer"
 	if capturedPath != expected {
 		t.Fatalf("expected path %s, got %s", expected, capturedPath)
 	}
@@ -322,11 +329,12 @@ func TestInfer_FallsBackToTheUnscopedPathWhenNobodyAnswers(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "")
+	client.SetVersion(3)
 	if _, _, err := client.Infer(context.Background(), "test", "task", "proj"); err != nil {
 		t.Fatal(err)
 	}
 
-	expected := "/public/triton/v2/models/model_proj_task/infer"
+	expected := "/public/triton/v2/models/model_proj_task/versions/3/infer"
 	if capturedPath != expected {
 		t.Fatalf("expected path %s, got %s", expected, capturedPath)
 	}
@@ -353,13 +361,47 @@ func TestModelName_Sanitization(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient("", srv.URL)
+	client.SetVersion(3)
 	_, _, err := client.Infer(context.Background(), "test", "my task/v2", "project name")
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := "/v2/models/model_project_name_my_task_v2/infer"
+	expected := "/v2/models/model_project_name_my_task_v2/versions/3/infer"
 	if capturedURL != expected {
 		t.Fatalf("expected URL %s, got %s", expected, capturedURL)
+	}
+}
+
+func TestInfer_WithoutAVersionIsRefusedBeforeAnyRequest(t *testing.T) {
+	var reached bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+	}))
+	defer srv.Close()
+
+	_, _, err := NewClient(srv.URL, "").Infer(context.Background(), "test", "task", "proj")
+	if err == nil || !strings.Contains(err.Error(), "version is required") {
+		t.Fatalf("expected a version-required error, got %v", err)
+	}
+	if reached {
+		t.Fatal("a request was sent without a version")
+	}
+}
+
+func TestWrappers_PassTheirVersionToInference(t *testing.T) {
+	openAI, err := NewOpenAIClient(OpenAIClientConfig{SpecificAIURL: "http://gw", UseSpecificAIInference: true, SpecificAIVersion: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer openAI.Close()
+	anthropic, err := NewAnthropicClient(AnthropicClientConfig{SpecificAIURL: "http://gw", UseSpecificAIInference: true, SpecificAIVersion: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer anthropic.Close()
+
+	if openAI.inference.version != "3" || anthropic.inference.version != "3" {
+		t.Fatalf("expected version 3 on both wrappers, got %q and %q", openAI.inference.version, anthropic.inference.version)
 	}
 }
 
@@ -380,6 +422,7 @@ func TestInfer_RedirectOffTheHostIsRefused(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClientWithAPIKey("", srv.URL, "test-key")
+	client.SetVersion(3)
 	_, _, err := client.Infer(context.Background(), "test text", "my_task", "my_project")
 	if err == nil {
 		t.Fatal("expected the redirect to another host to be refused")
@@ -410,6 +453,7 @@ func TestFetchBasePath_RedirectOffTheHostDoesNotCarryTheKey(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClientWithAPIKey("", srv.URL, "test-key")
+	client.SetVersion(3)
 	if base := client.fetchBasePath(context.Background(), srv.URL); base != "" {
 		t.Fatalf("a refused redirect must leave the caller on the un-scoped prefix, got %q", base)
 	}
@@ -459,6 +503,7 @@ func TestInfer_RedirectKeepsThePostAndItsCredential(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClientWithAPIKey("", srv.URL, "test-key")
+	client.SetVersion(3)
 	if _, _, err := client.Infer(context.Background(), "test text", "my_task", "my_project"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
