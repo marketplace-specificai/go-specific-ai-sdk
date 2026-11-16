@@ -70,7 +70,7 @@ client, err := specificai.NewClient(
 if err != nil { log.Fatal(err) }
 defer client.Close()
 
-resp, err := client.Create(ctx, "Great product!", "sentiment", "my_project")
+resp, err := client.Create(ctx, "Great product!", "sentiment", "my_project", "")
 // resp is an inference.LMResponse (ClassificationResponse, GenerationResponse, or EntityRecognitionResponse)
 ```
 
@@ -113,9 +113,12 @@ Wraps OpenAI Chat Completions with automatic tracing. Optionally routes through 
 import "github.com/marketplace-specificai/go-specific-ai-sdk/inference"
 
 client, _ := inference.NewOpenAIClient(inference.OpenAIClientConfig{
-    APIKey:           "sk-your-openai-key",
-    SpecificAIURL:    "https://platform.specific.ai",
-    SpecificAIAPIKey: "sk_...", // authenticates SpecificAI inference and traces; defaults to $SPECIFIC_AI_API_KEY
+    APIKey:                "sk-your-openai-key",
+    SpecificAIURL:         "https://platform.specific.ai",
+    SpecificAIAPIKey:      "sk_...", // authenticates SpecificAI inference and traces; defaults to $SPECIFIC_AI_API_KEY
+    SpecificAIWorkspaceID: "your-workspace-id",
+    SpecificAIModelID:     "6890bd049414abe1d38d3bf7.v1", // {usecase_id}.v{version}
+    UseSpecificAIInference: true,
 })
 defer client.Close()
 
@@ -130,9 +133,12 @@ fmt.Println(resp.Choices[0].Message.Content)
 
 ```go
 client, _ := inference.NewAnthropicClient(inference.AnthropicClientConfig{
-    APIKey:           "sk-ant-your-key",
-    SpecificAIURL:    "https://platform.specific.ai",
-    SpecificAIAPIKey: "sk_...", // authenticates SpecificAI inference and traces; defaults to $SPECIFIC_AI_API_KEY
+    APIKey:                "sk-ant-your-key",
+    SpecificAIURL:         "https://platform.specific.ai",
+    SpecificAIAPIKey:      "sk_...", // authenticates SpecificAI inference and traces; defaults to $SPECIFIC_AI_API_KEY
+    SpecificAIWorkspaceID: "your-workspace-id",
+    SpecificAIModelID:     "6890bd049414abe1d38d3bf7.v1", // {usecase_id}.v{version}
+    UseSpecificAIInference: true,
 })
 defer client.Close()
 

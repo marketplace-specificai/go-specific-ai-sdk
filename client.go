@@ -14,9 +14,9 @@ import (
 )
 
 // gatewayRoot strips a trailing /api or /api/ suffix from the base URL so that
-// public proxy paths (/public/triton, /public/api) resolve relative to the
-// domain root. The Python SDK passes these as a separate "url" parameter; the
-// Go SDK derives the gateway root from baseURL instead.
+// public proxy paths (/public/api) resolve relative to the domain root.
+// The Python SDK passes these as a separate "url" parameter; the Go SDK derives
+// the gateway root from baseURL instead.
 func gatewayRoot(baseURL string) string {
 	u := strings.TrimRight(baseURL, "/")
 	if strings.HasSuffix(u, "/api") {
@@ -106,11 +106,8 @@ func NewClient(opts ...Option) (*Client, error) {
 
 	if baseURL != "" || inferenceURL != "" {
 		c.inference = inference.NewClientWithAPIKey(baseURL, inferenceURL, cfg.apiKey)
-		if cfg.version != nil {
-			c.inference.SetVersion(*cfg.version)
-		}
 		if cfg.workspaceID != "" {
-			c.inference.SetWorkspace(cfg.workspaceID)
+			c.inference.SetWorkspaceID(cfg.workspaceID)
 		}
 	}
 
@@ -132,15 +129,17 @@ func NewClient(opts ...Option) (*Client, error) {
 	return c, nil
 }
 
-// Create runs inference on a deployed SpecificAI model.
+// Create runs inference on a deployed SpecificAI model (2-mode priority):
 //
-// This requires the client to be initialized with WithInferenceURL or WithBaseURL
-// for gateway-based inference.
-func (c *Client) Create(ctx context.Context, message, taskName, projectName string) (inference.LMResponse, error) {
+// Mode 1 — Direct Triton (WithInferenceURL): taskName and projectName required; modelID ignored.
+// Mode 2 — Gateway with modelID (modelID non-empty): taskName and projectName ignored.
+//   The model ID already names the version (e.g. "6890bd049414abe1d38d3bf7.v3").
+//   Prefer CreateByModelID for a cleaner call site.
+func (c *Client) Create(ctx context.Context, message, taskName, projectName, modelID string) (inference.LMResponse, error) {
 	if c.inference == nil {
 		return nil, fmt.Errorf("inference not configured: initialize with WithInferenceURL or WithBaseURL")
 	}
-	if projectName == "" {
+	if projectName == "" && modelID == "" {
 		projectName = "default"
 	}
 
@@ -151,7 +150,7 @@ func (c *Client) Create(ctx context.Context, message, taskName, projectName stri
 		inferenceError *string
 	)
 
-	resp, rawLogits, err := c.inference.Infer(ctx, message, taskName, projectName)
+	resp, rawLogits, err := c.inference.Infer(ctx, message, taskName, projectName, modelID)
 	if err != nil {
 		errStr := err.Error()
 		inferenceError = &errStr
@@ -187,6 +186,15 @@ func (c *Client) Create(ctx context.Context, message, taskName, projectName stri
 	}
 
 	return resp, nil
+}
+
+// CreateByModelID runs inference through the gateway on the model that modelID
+// ("{usecase_id}.v{version}") names. It needs WithBaseURL and WithWorkspaceID.
+func (c *Client) CreateByModelID(ctx context.Context, message, modelID string) (inference.LMResponse, error) {
+	if modelID == "" {
+		return nil, fmt.Errorf("modelID is required")
+	}
+	return c.Create(ctx, message, "", "", modelID)
 }
 
 // Platform task type for summarization usecases. The inference TaskType enum

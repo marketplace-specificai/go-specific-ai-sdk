@@ -54,8 +54,7 @@ func TestInfer_Classification(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient("", srv.URL)
-	client.SetVersion(3)
-	resp, logits, err := client.Infer(context.Background(), "test text", "my_task", "my_project")
+	resp, logits, err := client.Infer(context.Background(), "test text", "my_task", "my_project", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -94,8 +93,7 @@ func TestInfer_SendsAPIKey(t *testing.T) {
 	defer srv.Close()
 
 	for _, client := range []*Client{NewClientWithAPIKey("", srv.URL, "sk_explicit"), NewClient("", srv.URL)} {
-		client.SetVersion(3)
-		if _, _, err := client.Infer(context.Background(), "hi", "task", "project"); err != nil {
+		if _, _, err := client.Infer(context.Background(), "hi", "task", "project", ""); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	}
@@ -122,8 +120,7 @@ func TestInfer_Generation(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient("", srv.URL)
-	client.SetVersion(3)
-	resp, _, err := client.Infer(context.Background(), "generate something", "gen_task", "project")
+	resp, _, err := client.Infer(context.Background(), "generate something", "gen_task", "project", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -161,8 +158,7 @@ func TestInfer_NER(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient("", srv.URL)
-	client.SetVersion(3)
-	resp, _, err := client.Infer(context.Background(), "John went home", "ner_task", "project")
+	resp, _, err := client.Infer(context.Background(), "John went home", "ner_task", "project", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -193,150 +189,68 @@ func TestInfer_UnknownTaskType(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient("", srv.URL)
-	client.SetVersion(3)
-	_, _, err := client.Infer(context.Background(), "test", "task", "project")
+	_, _, err := client.Infer(context.Background(), "test", "task", "project", "")
 	if err == nil {
 		t.Fatal("expected error for unknown task type")
 	}
 }
 
-func TestGatewayRoot(t *testing.T) {
-	tests := []struct {
-		input, want string
-	}{
-		{"https://dev.specific.ai/api", "https://dev.specific.ai"},
-		{"https://dev.specific.ai/api/", "https://dev.specific.ai"},
-		{"https://dev.specific.ai", "https://dev.specific.ai"},
-		{"https://dev.specific.ai/", "https://dev.specific.ai"},
-		{"http://localhost:8080/api", "http://localhost:8080"},
-		{"http://localhost:8080", "http://localhost:8080"},
-		{"https://example.com/myapi", "https://example.com/myapi"},
-	}
-	for _, tt := range tests {
-		got := gatewayRoot(tt.input)
-		if got != tt.want {
-			t.Errorf("gatewayRoot(%q) = %q, want %q", tt.input, got, tt.want)
-		}
-	}
-}
-
-func TestInfer_BaseURLWithAPISuffix(t *testing.T) {
-	var capturedPath string
+func TestInfer_NoTargetForMissingWorkspaceReturnsError(t *testing.T) {
+	// baseURL set but no workspaceID and no modelID — mode 2 would fail.
+	var reached bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedPath = r.URL.Path
-		result := map[string]any{
-			"task_type":   "ClassificationResponse",
-			"labels":      []string{"a"},
-			"confidences": map[string]float64{"a": 1.0},
-		}
-		resultJSON, _ := json.Marshal(result)
-		resp := map[string]any{
-			"outputs": []map[string]any{
-				{"name": "result", "data": []string{string(resultJSON)}},
-				{"name": "raw_logits", "data": []float64{}},
-			},
-		}
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer srv.Close()
-
-	client := NewClient(srv.URL+"/api", "")
-	client.SetVersion(3)
-	_, _, err := client.Infer(context.Background(), "test", "task", "proj")
-	if err != nil {
-		t.Fatal(err)
-	}
-	expected := "/public/triton/v2/models/model_proj_task/versions/3/infer"
-	if capturedPath != expected {
-		t.Fatalf("expected path %s, got %s", expected, capturedPath)
-	}
-}
-
-func TestInfer_AsksThePlatformWhichWorkspacePathToUse(t *testing.T) {
-	// Two tenants can deploy the same model name, so the path carries the workspace.
-	// Nobody tells the caller theirs: the API key is what the platform answers from.
-	const workspace = "6ad761f4d2970b22cb1a569d"
-	var capturedPath, lookupAuth string
-	lookups := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/public/api/inference_path" {
-			lookups++
-			lookupAuth = r.Header.Get("Authorization")
-			json.NewEncoder(w).Encode(map[string]string{
-				"base_path":    "/public/triton/" + workspace,
-				"workspace_id": workspace,
-			})
-			return
-		}
-		capturedPath = r.URL.Path
-		result := map[string]any{
-			"task_type":   "ClassificationResponse",
-			"labels":      []string{"a"},
-			"confidences": map[string]float64{"a": 1.0},
-		}
-		resultJSON, _ := json.Marshal(result)
-		json.NewEncoder(w).Encode(map[string]any{
-			"outputs": []map[string]any{
-				{"name": "result", "data": []string{string(resultJSON)}},
-				{"name": "raw_logits", "data": []float64{}},
-			},
-		})
-	}))
-	defer srv.Close()
-
-	client := NewClientWithAPIKey(srv.URL, "", "sk-test")
-	client.SetVersion(3)
-	for range 2 {
-		if _, _, err := client.Infer(context.Background(), "test", "task", "proj"); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	expected := "/public/triton/" + workspace + "/v2/models/model_proj_task/versions/3/infer"
-	if capturedPath != expected {
-		t.Fatalf("expected path %s, got %s", expected, capturedPath)
-	}
-	if lookupAuth != "Bearer sk-test" {
-		t.Fatalf("expected the API key on the lookup, got %q", lookupAuth)
-	}
-	if lookups != 1 {
-		t.Fatalf("expected the answer to be kept, got %d lookups", lookups)
-	}
-}
-
-func TestInfer_FallsBackToTheUnscopedPathWhenNobodyAnswers(t *testing.T) {
-	// A self-hosted Triton, or a backend older than the workspace segment.
-	var capturedPath string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/public/api/inference_path" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		capturedPath = r.URL.Path
-		result := map[string]any{
-			"task_type":   "ClassificationResponse",
-			"labels":      []string{"a"},
-			"confidences": map[string]float64{"a": 1.0},
-		}
-		resultJSON, _ := json.Marshal(result)
-		json.NewEncoder(w).Encode(map[string]any{
-			"outputs": []map[string]any{
-				{"name": "result", "data": []string{string(resultJSON)}},
-				{"name": "raw_logits", "data": []float64{}},
-			},
-		})
+		reached = true
 	}))
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "")
-	client.SetVersion(3)
-	if _, _, err := client.Infer(context.Background(), "test", "task", "proj"); err != nil {
+	// No modelID, no taskName/projectName — none of the modes applies.
+	_, _, err := client.Infer(context.Background(), "test", "", "", "")
+	if err == nil {
+		t.Fatal("expected error when no inference target is configured")
+	}
+	if !strings.Contains(err.Error(), "no inference target configured") {
+		t.Fatalf("error does not explain the missing target: %v", err)
+	}
+	if reached {
+		t.Fatal("unexpected request was made")
+	}
+}
+
+func TestInfer_BaseURLWithWorkspaceAndModelIDRoutesToGateway(t *testing.T) {
+	const (
+		workspaceID = "507f1f77bcf86cd799439011"
+		modelID     = "507f1f77bcf86cd799439011.v2"
+	)
+	var capturedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		result := map[string]any{"task_type": "ClassificationResponse", "labels": []string{"a"}, "confidences": map[string]float64{"a": 1.0}}
+		resultJSON, _ := json.Marshal(result)
+		json.NewEncoder(w).Encode(map[string]any{"outputs": []map[string]any{{"name": "result", "data": []string{string(resultJSON)}}}})
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "")
+	client.SetWorkspaceID(workspaceID)
+	_, _, err := client.Infer(context.Background(), "test", "", "", modelID)
+	if err != nil {
 		t.Fatal(err)
 	}
+	want := "/" + workspaceID + "/models/" + modelID + "/infer"
+	if capturedPath != want {
+		t.Fatalf("expected %s, got %s", want, capturedPath)
+	}
+}
 
-	expected := "/public/triton/v2/models/model_proj_task/versions/3/infer"
-	if capturedPath != expected {
-		t.Fatalf("expected path %s, got %s", expected, capturedPath)
+func TestInfer_NoTargetReturnsError(t *testing.T) {
+	client := NewClient("", "")
+	_, _, err := client.Infer(context.Background(), "test", "task", "proj", "")
+	if err == nil {
+		t.Fatal("expected error when no inference target is configured")
+	}
+	if !strings.Contains(err.Error(), "no inference target configured") {
+		t.Fatalf("error does not explain the missing target: %v", err)
 	}
 }
 
@@ -361,53 +275,57 @@ func TestModelName_Sanitization(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient("", srv.URL)
-	client.SetVersion(3)
-	_, _, err := client.Infer(context.Background(), "test", "my task/v2", "project name")
+	_, _, err := client.Infer(context.Background(), "test", "my task/v2", "project name", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := "/v2/models/model_project_name_my_task_v2/versions/3/infer"
+	expected := "/v2/models/model_project_name_my_task_v2/infer"
 	if capturedURL != expected {
 		t.Fatalf("expected URL %s, got %s", expected, capturedURL)
 	}
 }
 
-func TestInfer_WithoutAVersionIsRefusedBeforeAnyRequest(t *testing.T) {
-	var reached bool
+func TestInfer_DifferentModelIDsOnSameClient(t *testing.T) {
+	var paths []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reached = true
+		paths = append(paths, r.URL.Path)
+		result := map[string]any{
+			"task_type":   "ClassificationResponse",
+			"labels":      []string{"a"},
+			"confidences": map[string]float64{"a": 1.0},
+		}
+		resultJSON, _ := json.Marshal(result)
+		json.NewEncoder(w).Encode(map[string]any{
+			"outputs": []map[string]any{
+				{"name": "result", "data": []string{string(resultJSON)}},
+			},
+		})
 	}))
 	defer srv.Close()
 
-	_, _, err := NewClient(srv.URL, "").Infer(context.Background(), "test", "task", "proj")
-	if err == nil || !strings.Contains(err.Error(), "version is required") {
-		t.Fatalf("expected a version-required error, got %v", err)
-	}
-	if reached {
-		t.Fatal("a request was sent without a version")
-	}
-}
-
-func TestWrappers_PassTheirVersionToInference(t *testing.T) {
-	openAI, err := NewOpenAIClient(OpenAIClientConfig{SpecificAIURL: "http://gw", UseSpecificAIInference: true, SpecificAIVersion: 3})
-	if err != nil {
+	const workspaceID = "507f1f77bcf86cd799439011"
+	client := NewClient(srv.URL, "")
+	client.SetWorkspaceID(workspaceID)
+	if _, _, err := client.Infer(context.Background(), "v1", "", "", workspaceID+".v1"); err != nil {
 		t.Fatal(err)
 	}
-	defer openAI.Close()
-	anthropic, err := NewAnthropicClient(AnthropicClientConfig{SpecificAIURL: "http://gw", UseSpecificAIInference: true, SpecificAIVersion: 3})
-	if err != nil {
+	if _, _, err := client.Infer(context.Background(), "v2", "", "", workspaceID+".v2"); err != nil {
 		t.Fatal(err)
 	}
-	defer anthropic.Close()
 
-	if openAI.inference.version != "3" || anthropic.inference.version != "3" {
-		t.Fatalf("expected version 3 on both wrappers, got %q and %q", openAI.inference.version, anthropic.inference.version)
+	// Version is encoded in model_id; Triton path has no /versions/ segment.
+	if strings.Contains(paths[0], "/versions/") {
+		t.Fatalf("unexpected /versions/ in path: %s", paths[0])
+	}
+	if strings.Contains(paths[1], "/versions/") {
+		t.Fatalf("unexpected /versions/ in path: %s", paths[1])
+	}
+	if !strings.HasSuffix(paths[0], "/infer") || !strings.HasSuffix(paths[1], "/infer") {
+		t.Fatalf("expected paths ending in /infer, got %s and %s", paths[0], paths[1])
 	}
 }
 
 func TestInfer_RedirectOffTheHostIsRefused(t *testing.T) {
-	// net/http drops sensitive headers across hosts; following redirects by hand
-	// has to refuse the hop rather than hand the key and the prompt to it.
 	var reached bool
 	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reached = true
@@ -415,15 +333,13 @@ func TestInfer_RedirectOffTheHostIsRefused(t *testing.T) {
 	defer elsewhere.Close()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Same port, different host: 127.0.0.1 and localhost are not the same name.
 		w.Header().Set("Location", strings.Replace(elsewhere.URL, "127.0.0.1", "localhost", 1)+r.URL.Path)
 		w.WriteHeader(http.StatusMovedPermanently)
 	}))
 	defer srv.Close()
 
 	client := NewClientWithAPIKey("", srv.URL, "test-key")
-	client.SetVersion(3)
-	_, _, err := client.Infer(context.Background(), "test text", "my_task", "my_project")
+	_, _, err := client.Infer(context.Background(), "test text", "my_task", "my_project", "")
 	if err == nil {
 		t.Fatal("expected the redirect to another host to be refused")
 	}
@@ -435,42 +351,15 @@ func TestInfer_RedirectOffTheHostIsRefused(t *testing.T) {
 	}
 }
 
-func TestFetchBasePath_RedirectOffTheHostDoesNotCarryTheKey(t *testing.T) {
-	// Go's own redirect policy keeps Authorization on any same-host hop and only
-	// drops it when the host changes, so the discovery GET needs the destination
-	// check too: otherwise a Location naming plain HTTP puts the key on the wire.
-	var carried string
-	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		carried = r.Header.Get("Authorization")
-		_, _ = w.Write([]byte(`{"base_path": "/public/triton/stolen"}`))
-	}))
-	defer elsewhere.Close()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Location", strings.Replace(elsewhere.URL, "127.0.0.1", "localhost", 1)+r.URL.Path)
-		w.WriteHeader(http.StatusMovedPermanently)
-	}))
-	defer srv.Close()
-
-	client := NewClientWithAPIKey("", srv.URL, "test-key")
-	client.SetVersion(3)
-	if base := client.fetchBasePath(context.Background(), srv.URL); base != "" {
-		t.Fatalf("a refused redirect must leave the caller on the un-scoped prefix, got %q", base)
-	}
-	if carried != "" {
-		t.Fatalf("the API key was carried to another host: %q", carried)
-	}
-}
-
 func TestMayReplay(t *testing.T) {
 	for _, tc := range []struct {
 		current, target string
 		allowed         bool
 	}{
-		{"http://host/a", "https://host/a", true}, // the upgrade this exists for
+		{"http://host/a", "https://host/a", true},
 		{"https://host/a", "https://host/b", true},
-		{"http://host:8000/a", "http://host:9000/a", true}, // one Triton's own listeners
-		{"https://host/a", "http://host/a", false},         // a step down to cleartext
+		{"http://host:8000/a", "http://host:9000/a", true},
+		{"https://host/a", "http://host/a", false},
 		{"https://host/a", "https://elsewhere/a", false},
 		{"http://host/a", "http://elsewhere/a", false},
 	} {
@@ -482,9 +371,68 @@ func TestMayReplay(t *testing.T) {
 	}
 }
 
+func TestInfer_GatewayMode2UsesModelIDURL(t *testing.T) {
+	// Mode 2: baseURL + workspaceID + modelID (per call) -> /{ws}/models/{id}/infer.
+	const (
+		workspaceID = "507f1f77bcf86cd799439011"
+		modelID     = "507f1f77bcf86cd799439011.v2"
+	)
+
+	var capturedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		result := map[string]any{
+			"task_type":   "ClassificationResponse",
+			"labels":      []string{"a"},
+			"confidences": map[string]float64{"a": 1.0},
+		}
+		resultJSON, _ := json.Marshal(result)
+		json.NewEncoder(w).Encode(map[string]any{
+			"outputs": []map[string]any{
+				{"name": "result", "data": []string{string(resultJSON)}},
+				{"name": "raw_logits", "data": []float64{}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "")
+	client.SetWorkspaceID(workspaceID)
+
+	// taskName and projectName are ignored when modelID is set.
+	if _, _, err := client.Infer(context.Background(), "hello", "", "", modelID); err != nil {
+		t.Fatal(err)
+	}
+
+	want := "/" + workspaceID + "/models/" + modelID + "/infer"
+	if capturedPath != want {
+		t.Fatalf("expected mode-2 gateway URL %s, got %s", want, capturedPath)
+	}
+}
+
+func TestInfer_TritonNamePathHasNoVersionsSegment(t *testing.T) {
+	// Mode 2 (model_id): model ID encodes version; no /versions/ in path.
+	var capturedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		result := map[string]any{"task_type": "ClassificationResponse", "labels": []string{"a"}, "confidences": map[string]float64{"a": 1.0}}
+		resultJSON, _ := json.Marshal(result)
+		json.NewEncoder(w).Encode(map[string]any{"outputs": []map[string]any{{"name": "result", "data": []string{string(resultJSON)}}}})
+	}))
+	defer srv.Close()
+
+	const workspaceID = "507f1f77bcf86cd799439011"
+	client := NewClient(srv.URL, "")
+	client.SetWorkspaceID(workspaceID)
+	if _, _, err := client.Infer(context.Background(), "hello", "", "", workspaceID+".v3"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(capturedPath, "/versions/") {
+		t.Fatalf("unexpected /versions/ in gateway model-ID path: %s", capturedPath)
+	}
+}
+
 func TestInfer_RedirectKeepsThePostAndItsCredential(t *testing.T) {
-	// A gateway that terminates TLS redirects plain HTTP to HTTPS; Go's default
-	// client would retry the POST as a bodiless GET with no Authorization header.
 	var finalMethod, finalAuth, finalBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("moved") == "" {
@@ -503,8 +451,7 @@ func TestInfer_RedirectKeepsThePostAndItsCredential(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClientWithAPIKey("", srv.URL, "test-key")
-	client.SetVersion(3)
-	if _, _, err := client.Infer(context.Background(), "test text", "my_task", "my_project"); err != nil {
+	if _, _, err := client.Infer(context.Background(), "test text", "my_task", "my_project", ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 

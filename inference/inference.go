@@ -11,15 +11,9 @@ import (
 	"os"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
-
-// publicPrefix is the path a deployed model answers on, before the workspace
-// segment the platform appends for its own tenants.
-const publicPrefix = "/public/triton"
 
 var unsafeChars = regexp.MustCompile(`[^a-zA-Z0-9_\-.]`)
 
@@ -57,29 +51,8 @@ type Client struct {
 	baseURL      string
 	inferenceURL string
 	apiKey       string
+	workspaceID  string
 	http         *http.Client
-
-	// Looked up once from the platform and kept for the life of the client; see
-	// inferenceBase. The mutex is held across that lookup so concurrent Infer
-	// calls make one request rather than one each.
-	mu       sync.Mutex
-	basePath string
-
-	// version is the trained version every request asks for, sent in Triton's
-	// own /v2/models/{model}/versions/{version}/... path. Empty sends none.
-	version string
-}
-
-// SetVersion sends every request to trained version v of the task, as
-// /v2/models/{model}/versions/{v}/infer.
-func (c *Client) SetVersion(v int) {
-	c.version = strconv.Itoa(v)
-}
-
-// SetWorkspace sends every request straight to /public/triton/{workspaceID},
-// so no lookup is made first.
-func (c *Client) SetWorkspace(workspaceID string) {
-	c.basePath = publicPrefix + "/" + workspaceID
 }
 
 // NewClient creates a new inference client.
@@ -188,9 +161,16 @@ func (c *Client) postFollowingRedirects(ctx context.Context, url string, body []
 }
 
 // Infer runs inference and returns parsed responses plus raw logits.
-func (c *Client) Infer(ctx context.Context, prompt, taskName, projectName string) (LMResponse, []float64, error) {
-	modelName := fmt.Sprintf("model_%s_%s", sanitizeNamePart(projectName), sanitizeNamePart(taskName))
-	rawLogits, modelResult, err := c.modelInference(ctx, modelName, prompt)
+//
+// Mode 1 — Direct Triton (inferenceURL set): taskName and projectName required;
+// modelID ignored. URL: {inferenceURL}/v2/models/model_{project}_{task}/infer.
+//
+// Mode 2 — Gateway with modelID (modelID non-empty): taskName and projectName
+// ignored; the gateway resolves the Triton model from its ModelMap.
+// URL: {baseURL}/{workspaceID}/models/{modelID}/infer.
+// Prefer CreateByModelID on the top-level Client for mode 2.
+func (c *Client) Infer(ctx context.Context, prompt, taskName, projectName, modelID string) (LMResponse, []float64, error) {
+	rawLogits, modelResult, err := c.modelInference(ctx, prompt, taskName, projectName, modelID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -201,109 +181,45 @@ func (c *Client) Infer(ctx context.Context, prompt, taskName, projectName string
 	return resp, rawLogits, nil
 }
 
-// gatewayRoot strips a trailing /api or /api/ suffix from the base URL so that
-// the public proxy paths are resolved relative to the domain root. The Python
-// SDK uses a separate "url" param for this; here we derive it.
-func gatewayRoot(baseURL string) string {
-	u := strings.TrimRight(baseURL, "/")
-	if strings.HasSuffix(u, "/api") {
-		u = strings.TrimSuffix(u, "/api")
-	}
-	return u
+// SetWorkspaceID sets the workspace ID for gateway-routed inference.
+func (c *Client) SetWorkspaceID(workspaceID string) {
+	c.workspaceID = workspaceID
 }
 
-// fetchBasePath asks the platform which path prefix this API key's models answer
-// on, returning "" when the answer cannot be had -- an older backend, or a blip --
-// so the caller stays on the un-scoped prefix and asks again next time.
-//
-// This uses a throwaway client rather than c.http because that one hands redirects
-// back for postFollowingRedirects to repeat as POSTs; a GET is safe to follow, and
-// a plain-HTTP base URL redirected to HTTPS has to be followed or there is no answer.
-// Followed under the same destination rule, because Go's own policy keeps
-// Authorization on any same-host hop -- including one back down to plain HTTP,
-// which would put the API key on the wire the caller did not choose.
-func (c *Client) fetchBasePath(ctx context.Context, root string) string {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, root+"/public/api/inference_path", nil)
-	if err != nil {
-		return ""
-	}
-	if c.apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	}
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) > maxRedirects {
-				return fmt.Errorf("discovery was redirected more than %d times", maxRedirects)
-			}
-			if from := via[len(via)-1].URL; !mayReplay(from, req.URL) {
-				return fmt.Errorf("%s redirected to %s, which this will not carry the API key to", from, req.URL)
-			}
-			return nil
-		},
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return ""
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return ""
-	}
-	var target struct {
-		BasePath string `json:"base_path"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&target); err != nil {
-		return ""
-	}
-	return target.BasePath
-}
-
-// inferenceBase returns the URL a model's /v2/models/... hangs off.
-//
-// Resolution order:
-//  1. inferenceURL — a Triton the caller manages themselves.
-//  2. /public/triton/{workspaceID} when SetWorkspace was called.
-//  3. Platform-resolved prefix via GET /public/api/inference_path.
-func (c *Client) inferenceBase(ctx context.Context) string {
+func (c *Client) modelInference(ctx context.Context, prompt, taskName, projectName, modelID string) ([]float64, map[string]any, error) {
+	var url string
 	if c.inferenceURL != "" {
-		return c.inferenceURL
+		// Mode 1: Direct Triton — build model name and POST to Triton directly.
+		if taskName == "" || projectName == "" {
+			return nil, nil, fmt.Errorf(
+				"taskName and projectName are required for direct Triton inference (inferenceURL mode)",
+			)
+		}
+		modelName := fmt.Sprintf("model_%s_%s", sanitizeNamePart(projectName), sanitizeNamePart(taskName))
+		url = fmt.Sprintf("%s/v2/models/%s/infer", c.inferenceURL, modelName)
+	} else if modelID != "" {
+		// Mode 2: Gateway with modelID — gateway resolves Triton model from ModelMap.
+		if c.baseURL == "" || c.workspaceID == "" {
+			return nil, nil, fmt.Errorf(
+				"no inference target configured: baseURL is set but workspaceID is missing; " +
+					"pass WithWorkspaceID or use WithInferenceURL for a Triton you manage",
+			)
+		}
+		url = fmt.Sprintf("%s/%s/models/%s/infer", c.baseURL, c.workspaceID, modelID)
+	} else {
+		return nil, nil, fmt.Errorf(
+			"no inference target configured: pass one of:\n" +
+				"  WithInferenceURL (direct Triton, requires taskName+projectName per call), or\n" +
+				"  modelID per call (gateway inference)",
+		)
 	}
-	root := gatewayRoot(c.baseURL)
-	c.mu.Lock()
-	cached := c.basePath
-	c.mu.Unlock()
-	if cached != "" {
-		return root + cached
-	}
-	// The lookup runs unlocked on purpose. A mutex does not watch a context, so
-	// holding one across a network call would keep concurrent Infer calls waiting
-	// past their own deadlines, and a lookup that fails caches nothing -- so each
-	// of them would then spend its own timeout in turn before any reached the
-	// fallback. Unlocked, a first burst may look the prefix up more than once,
-	// which costs one cheap GET each and happens once per process.
-	basePath := c.fetchBasePath(ctx, root)
-	if basePath == "" {
-		return root + publicPrefix
-	}
-	c.mu.Lock()
-	c.basePath = basePath
-	c.mu.Unlock()
-	return root + basePath
-}
-
-func (c *Client) modelInference(ctx context.Context, modelName, inputText string) ([]float64, map[string]any, error) {
-	if c.version == "" {
-		return nil, nil, fmt.Errorf("a version is required: call SetVersion with the trained version of the task to run inference on (e.g. 1)")
-	}
-	url := fmt.Sprintf("%s/v2/models/%s/versions/%s/infer", c.inferenceBase(ctx), modelName, c.version)
 
 	payload := tritonRequest{
 		Inputs: []tritonInput{{
 			Name:     "input_text",
 			Shape:    []int{1, 1},
 			Datatype: "BYTES",
-			Data:     []string{inputText},
+			Data:     []string{prompt},
 		}},
 		Outputs: []tritonOutput{
 			{Name: "result"},

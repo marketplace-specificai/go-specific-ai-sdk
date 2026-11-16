@@ -65,8 +65,10 @@ type OpenAIClientConfig struct {
 	SpecificAIURL             string
 	// SpecificAIAPIKey authenticates SpecificAI inference and traces; defaults to SPECIFIC_AI_API_KEY.
 	SpecificAIAPIKey          string
-	// SpecificAIVersion is the trained version of the task to run inference on (e.g. 1); 0 sends none.
-	SpecificAIVersion         int
+	// SpecificAIWorkspaceID is the workspace ID for gateway-routed inference.
+	SpecificAIWorkspaceID     string
+	// SpecificAIModelID is the model identifier (e.g. "{usecase_id}.v{version}") for gateway inference.
+	SpecificAIModelID         string
 	UseSpecificAIInference    bool
 	ParseSpecificAIResponse   ParseSpecificAIResponseFunc
 }
@@ -79,6 +81,7 @@ type OpenAIClient struct {
 	useSpecificAIInference  bool
 	parseResponse           ParseSpecificAIResponseFunc
 	inference               *Client
+	specificAIModelID       string
 	tracer                  *tracing.Collector
 	httpClient              *http.Client
 }
@@ -108,9 +111,8 @@ func NewOpenAIClient(cfg OpenAIClientConfig) (*OpenAIClient, error) {
 	}
 	if cfg.UseSpecificAIInference {
 		c.inference = NewClientWithAPIKey(cfg.SpecificAIURL, "", cfg.SpecificAIAPIKey)
-		if cfg.SpecificAIVersion != 0 {
-			c.inference.SetVersion(cfg.SpecificAIVersion)
-		}
+		c.inference.SetWorkspaceID(cfg.SpecificAIWorkspaceID)
+		c.specificAIModelID = cfg.SpecificAIModelID
 	}
 	return c, nil
 }
@@ -140,7 +142,7 @@ func (c *OpenAIClient) CreateCompletion(
 
 	if c.useSpecificAIInference && c.inference != nil {
 		isFromSpecific = true
-		resp, logits, err := c.inference.Infer(ctx, prompt, taskName, projectName)
+		resp, logits, err := c.inference.Infer(ctx, prompt, "", "", c.specificAIModelID)
 		if err != nil {
 			errStr := err.Error()
 			inferenceError = &errStr

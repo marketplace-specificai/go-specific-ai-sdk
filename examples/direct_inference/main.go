@@ -12,6 +12,8 @@ import (
 func main() {
 	client, err := specificai.NewClient(
 		specificai.WithBaseURL("https://dev.specific.ai"),
+		specificai.WithAPIKey("sk-your-api-key"),
+		specificai.WithWorkspaceID("your-workspace-id"),
 		specificai.WithTrace(true),
 	)
 	if err != nil {
@@ -19,11 +21,11 @@ func main() {
 	}
 	defer client.Close()
 
-	resp, err := client.Create(
+	// Gateway inference by model ID.
+	resp, err := client.CreateByModelID(
 		context.Background(),
 		"The product quality is excellent and delivery was fast",
-		"sentiment_analysis",
-		"my_project",
+		"6890bd049414abe1d38d3bf7.v1", // modelID: {usecase_id}.v{version}
 	)
 	if err != nil {
 		log.Fatal(err)

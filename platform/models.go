@@ -150,18 +150,18 @@ func (m *ModelManager) DeleteVersion(ctx context.Context, taskID string, version
 
 // InferenceEndpoint is the response from GetEndpoint.
 type InferenceEndpoint struct {
-	// EndpointID is the K8s Service name (= resource_name() output from per_model_names.py).
-	// It is the URL path segment the inference-gateway uses: /endpoints/{EndpointID}/...
-	EndpointID string `json:"endpoint_id"`
-	// EndpointURL is the full base URL to use for inference.
+	// ModelID is the K8s Service name (= resource_name() output from per_model_names.py).
+	// It is the URL path segment the inference-gateway uses: /models/{ModelID}/...
+	ModelID string `json:"model_id"`
+	// ModelURL is the full base URL to use for inference.
 	// Append /v2/models/{model_name}/infer to reach the model.
-	EndpointURL string `json:"endpoint_url"`
+	ModelURL string `json:"model_url"`
 }
 
 // GetEndpoint returns the stable inference endpoint for a deployed task.
 //
-// Calls GET /public/inference-endpoint/{taskID} and returns the endpoint_id
-// together with a ready-to-use endpoint_url.
+// Calls GET /public/inference-endpoint/{taskID} and returns the model_id
+// together with a ready-to-use model_url.
 func (m *ModelManager) GetEndpoint(ctx context.Context, taskID string) (*InferenceEndpoint, error) {
 	var ep InferenceEndpoint
 	err := m.client.DoJSON(ctx, httpclient.RequestParams{

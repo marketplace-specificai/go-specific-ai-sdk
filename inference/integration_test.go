@@ -30,7 +30,7 @@ func TestIntegration_DirectInference_Classification(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	resp, logits, err := client.Infer(ctx, "Test classification input", taskName, projectName)
+	resp, logits, err := client.Infer(ctx, "Test classification input", taskName, projectName, "")
 	if err != nil {
 		t.Fatalf("Infer: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestIntegration_DirectInference_InferenceURL(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	resp, _, err := client.Infer(ctx, "Test with direct Triton URL", taskName, projectName)
+	resp, _, err := client.Infer(ctx, "Test with direct Triton URL", taskName, projectName, "")
 	if err != nil {
 		t.Fatalf("Infer via Triton URL: %v", err)
 	}
@@ -68,24 +68,27 @@ func TestIntegration_DirectInference_InferenceURL(t *testing.T) {
 	t.Logf("Response type: %T", resp)
 }
 
-func TestIntegration_DirectInference_GatewayRootStripping(t *testing.T) {
+func TestIntegration_DirectInference_WorkspaceID(t *testing.T) {
 	baseURL := requiredEnv(t, "SPECIFIC_AI_BASE_URL")
+	workspaceID := requiredEnv(t, "INTEGRATION_WORKSPACE_ID")
 	taskName := requiredEnv(t, "INTEGRATION_TASK_NAME")
 	projectName := requiredEnv(t, "INTEGRATION_PROJECT_NAME")
+	apiKey := os.Getenv("SPECIFIC_AI_API_KEY")
 
-	client := NewClient(baseURL+"/api", "")
+	client := NewClientWithAPIKey(baseURL, "", apiKey)
+	client.SetWorkspaceID(workspaceID)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	resp, _, err := client.Infer(ctx, "Test gatewayRoot stripping", taskName, projectName)
+	resp, _, err := client.Infer(ctx, "Test workspace routing", taskName, projectName, "")
 	if err != nil {
-		t.Fatalf("Infer with /api suffix: %v", err)
+		t.Fatalf("Infer with workspace ID: %v", err)
 	}
 	if resp == nil {
 		t.Fatal("expected non-nil response")
 	}
-	t.Log("gatewayRoot stripping works correctly")
+	t.Log("workspace ID routing works correctly")
 }
 
 // --- OpenAI wrapper ---

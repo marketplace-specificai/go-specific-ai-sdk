@@ -84,7 +84,7 @@ func TestIntegration_Inference_Classification(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	resp, err := client.Create(ctx, "This is a test input for classification", taskName, projectName)
+	resp, err := client.Create(ctx, "This is a test input for classification", taskName, projectName, "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestIntegration_Inference_WithTracing(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	resp, err := client.Create(ctx, "Tracing integration test", taskName, projectName)
+	resp, err := client.Create(ctx, "Tracing integration test", taskName, projectName, "")
 	if err != nil {
 		t.Fatalf("Create with tracing: %v", err)
 	}

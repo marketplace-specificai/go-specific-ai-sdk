@@ -13,6 +13,45 @@ The rows below for published versions were verified by downloading the module
 zips from `proxy.golang.org` and grepping them, not by reading this repository.
 Module path: `github.com/marketplace-specificai/go-specific-ai-sdk`.
 
+## [Unreleased]
+
+### Changed (breaking)
+
+- **Mode 3 (task/project/version gateway path) removed.** `Client.Infer()` and
+  `Client.Create()` no longer accept a `version int` parameter.
+  Use `modelID="{usecase_id}.v{version}"` (mode 2) for all gateway calls.
+  Direct Triton (`inferenceURL`) is unchanged.
+  `Client.Create()` new signature: `Create(ctx, message, taskName, projectName, modelID string)`.
+  `Client.Infer()` new signature: `Infer(ctx, prompt, taskName, projectName, modelID string)`.
+- `Client.CreateByModelID(ctx, message, modelID string)` added as the recommended
+  mode-2 entry point (wraps `Create` with empty task/project names).
+- `OpenAIClientConfig` / `AnthropicClientConfig`: `SpecificAIVersion int` replaced
+  by `SpecificAIWorkspaceID string` and `SpecificAIModelID string`.
+- `version` moved from the client constructor / `SetVersion()` to `Infer()` and
+  `Create()` as a per-call parameter, so different versions can be called on
+  the same client instance.
+
+### Removed (breaking)
+
+- `publicPrefix` constant removed.
+- `fetchBasePath()` function removed. Auto-discovery via `GET /public/api/inference_path`
+  is gone. Use `WithWorkspaceID` to route through `/public/triton/{workspaceID}`,
+  or let the client derive `/public/triton` from `WithBaseURL`.
+- `NewClientWithEndpoint()` removed. Use `NewClientWithAPIKey` with a `baseURL`
+  and optionally `SetWorkspaceID()`.
+- `SetVersion()` removed. Pass `version` directly to `Infer()` or `Create()`.
+- `WithVersion()` and `WithEndpointURL()` options removed.
+- `gatewayRoot()` removed from the `inference` package (kept in the top-level
+  `client.go` for tracing URL construction).
+- `warnLegacyDiscoveryOnce` removed.
+- `mu` and `basePath` fields removed from `Client`.
+
+### Added
+
+- `WithWorkspaceID` option routes inference through `/public/triton/{workspaceID}`
+  (URL-encoded, so names with spaces work correctly).
+- `SetWorkspaceID()` on `inference.Client` for workspace-scoped routing.
+
 ## [v0.1.0] - Unreleased
 
 The Go SDK was **not** affected by the publish drift that motivated this

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/marketplace-specificai/go-specific-ai-sdk/inference"
@@ -101,16 +102,13 @@ func TestWithInferenceURL(t *testing.T) {
 	srv := httptest.NewServer(tritonHandler(t, &gotPath))
 	defer srv.Close()
 
-	// WithInferenceURL alone must be enough to run inference, and the URL must
-	// be used verbatim as the Triton base — no /public/triton is appended,
-	// because there is no gateway in front of it.
-	client, err := NewClient(WithInferenceURL(srv.URL), WithVersion(3))
+	client, err := NewClient(WithInferenceURL(srv.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer client.Close()
 
-	resp, err := client.Create(context.Background(), "the prompt", "my_task", "my_project")
+	resp, err := client.Create(context.Background(), "the prompt", "my_task", "my_project", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,12 +120,25 @@ func TestWithInferenceURL(t *testing.T) {
 	if len(classification.Labels) != 1 || classification.Labels[0] != "Positive" {
 		t.Fatalf("expected labels=[Positive], got %v", classification.Labels)
 	}
-	if want := "/v2/models/model_my_project_my_task/versions/3/infer"; gotPath != want {
+	if want := "/v2/models/model_my_project_my_task/infer"; gotPath != want {
 		t.Fatalf("expected the inference URL to be used verbatim (%s), got %s", want, gotPath)
 	}
 }
 
-func TestWithInferenceURL_UnsetDerivesGatewayTritonPath(t *testing.T) {
+func TestWithInferenceURL_UnsetReturnsError(t *testing.T) {
+	t.Setenv("SPECIFIC_AI_BASE_URL", "")
+	t.Setenv("SPECIFIC_AI_API_KEY", "")
+
+	// Without WithInferenceURL or WithBaseURL, NewClient must fail.
+	_, err := NewClient()
+	if err == nil {
+		t.Fatal("expected error when no config provided")
+	}
+}
+
+func TestCreate_VersionNotInTritonPath(t *testing.T) {
+	// Version is encoded in model_id (e.g. "usecase.v3"), not in the Triton path.
+	// Direct Triton mode: path is /v2/models/{model_name}/infer with no /versions/ segment.
 	t.Setenv("SPECIFIC_AI_BASE_URL", "")
 	t.Setenv("SPECIFIC_AI_API_KEY", "")
 
@@ -135,24 +146,25 @@ func TestWithInferenceURL_UnsetDerivesGatewayTritonPath(t *testing.T) {
 	srv := httptest.NewServer(tritonHandler(t, &gotPath))
 	defer srv.Close()
 
-	// Without WithInferenceURL the Triton base is derived from the gateway root,
-	// which means /api is stripped and /public/triton added.
-	client, err := NewClient(WithBaseURL(srv.URL+"/api"), WithVersion(3))
+	client, err := NewClient(WithInferenceURL(srv.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer client.Close()
 
-	if _, err := client.Create(context.Background(), "the prompt", "my_task", "my_project"); err != nil {
+	if _, err := client.Create(context.Background(), "the prompt", "my_task", "my_project", ""); err != nil {
 		t.Fatal(err)
 	}
 
-	if want := "/public/triton/v2/models/model_my_project_my_task/versions/3/infer"; gotPath != want {
-		t.Fatalf("expected derived gateway Triton path %s, got %s", want, gotPath)
+	if want := "/v2/models/model_my_project_my_task/infer"; gotPath != want {
+		t.Fatalf("expected Triton path %s, got %s", want, gotPath)
+	}
+	if strings.Contains(gotPath, "/versions/") {
+		t.Fatalf("version must not appear in the Triton path: %s", gotPath)
 	}
 }
 
-func TestWithVersion_GoesIntoTritonPath(t *testing.T) {
+func TestCreate_DifferentVersionsOnSameClient(t *testing.T) {
 	t.Setenv("SPECIFIC_AI_BASE_URL", "")
 	t.Setenv("SPECIFIC_AI_API_KEY", "")
 
@@ -160,46 +172,27 @@ func TestWithVersion_GoesIntoTritonPath(t *testing.T) {
 	srv := httptest.NewServer(tritonHandler(t, &gotPath))
 	defer srv.Close()
 
-	client, err := NewClient(WithInferenceURL(srv.URL), WithVersion(3))
+	client, err := NewClient(WithInferenceURL(srv.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer client.Close()
 
-	if _, err := client.Create(context.Background(), "the prompt", "my_task", "my_project"); err != nil {
+	if _, err := client.Create(context.Background(), "v1", "my_task", "my_project", ""); err != nil {
 		t.Fatal(err)
 	}
-
-	if want := "/v2/models/model_my_project_my_task/versions/3/infer"; gotPath != want {
-		t.Fatalf("expected versioned Triton path %s, got %s", want, gotPath)
+	if want := "/v2/models/model_my_project_my_task/infer"; gotPath != want {
+		t.Fatalf("expected version 1 path %s, got %s", want, gotPath)
 	}
-}
+	if strings.Contains(gotPath, "/versions/") {
+		t.Fatalf("version must not appear in the Triton path: %s", gotPath)
+	}
 
-func TestWithWorkspaceID_SkipsTheLookup(t *testing.T) {
-	t.Setenv("SPECIFIC_AI_BASE_URL", "")
-	t.Setenv("SPECIFIC_AI_API_KEY", "")
-
-	var gotPath string
-	requests := 0
-	triton := tritonHandler(t, &gotPath)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests++
-		triton(w, r)
-	}))
-	defer srv.Close()
-
-	client, err := NewClient(WithBaseURL(srv.URL), WithWorkspaceID("ws2"), WithVersion(1))
-	if err != nil {
+	if _, err := client.Create(context.Background(), "v2", "my_task", "my_project", ""); err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
-
-	if _, err := client.Create(context.Background(), "the prompt", "my_task", "my_project"); err != nil {
-		t.Fatal(err)
-	}
-
-	if want := "/public/triton/ws2/v2/models/model_my_project_my_task/versions/1/infer"; gotPath != want || requests != 1 {
-		t.Fatalf("expected one request to %s, got %d ending at %s", want, requests, gotPath)
+	if want := "/v2/models/model_my_project_my_task/infer"; gotPath != want {
+		t.Fatalf("expected version 2 path %s, got %s", want, gotPath)
 	}
 }
 
@@ -426,5 +419,57 @@ func TestNewClient_EnvFallback(t *testing.T) {
 
 	if client.Tasks == nil {
 		t.Fatal("expected platform mode from env vars")
+	}
+}
+
+func TestBaseURL_WithoutWorkspaceIDReturnsError(t *testing.T) {
+	t.Setenv("SPECIFIC_AI_BASE_URL", "")
+	t.Setenv("SPECIFIC_AI_API_KEY", "")
+
+	var gotPath string
+	srv := httptest.NewServer(tritonHandler(t, &gotPath))
+	defer srv.Close()
+
+	client, err := NewClient(WithBaseURL(srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	_, err = client.Create(context.Background(), "the prompt", "my_task", "my_project", "")
+	if err == nil {
+		t.Fatal("expected error when baseURL is set but workspaceID is missing")
+	}
+	if !strings.Contains(err.Error(), "no inference target") {
+		t.Fatalf("error does not mention missing inference target: %v", err)
+	}
+}
+
+func TestBaseURL_WithWorkspaceIDAndModelIDRoutesToGateway(t *testing.T) {
+	// Mode 2: modelID passed per-call (not at constructor time).
+	t.Setenv("SPECIFIC_AI_BASE_URL", "")
+	t.Setenv("SPECIFIC_AI_API_KEY", "")
+
+	const workspaceID = "507f1f77bcf86cd799439011"
+	const modelID = "507f1f77bcf86cd799439011.v1"
+
+	var gotPath string
+	srv := httptest.NewServer(tritonHandler(t, &gotPath))
+	defer srv.Close()
+
+	client, err := NewClient(WithBaseURL(srv.URL), WithWorkspaceID(workspaceID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	if _, err := client.CreateByModelID(context.Background(), "the prompt", modelID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mode 2: clients POST to /{workspace_id}/models/{model_id}/infer.
+	// The gateway resolves the Triton model internally - no model name in the client URL.
+	if want := "/" + workspaceID + "/models/" + modelID + "/infer"; gotPath != want {
+		t.Fatalf("expected path %s, got %s", want, gotPath)
 	}
 }
