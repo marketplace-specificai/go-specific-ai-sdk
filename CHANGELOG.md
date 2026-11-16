@@ -62,6 +62,12 @@ empty `BaseModelName` no longer means BERT.
 
 ### Added
 
+- `TaskManager.Create` and `TaskManager.Edit` return an error for a task name
+  longer than the platform accepts (100 characters by default; the platform's
+  `TASK_NAME_MAX_LENGTH`), before the request is sent. The limit comes from the
+  platform's `GET /name-limits`, asked once per `TaskManager`; a platform that
+  does not serve it leaves the check to the platform. `Edit` keeps the task's
+  stored name.
 - `TestWithInferenceURL` in `client_test.go`: asserts the option is honoured
   verbatim as the Triton base, that a client built with `WithInferenceURL` alone
   (no `WithBaseURL`) can run inference, and that omitting it derives

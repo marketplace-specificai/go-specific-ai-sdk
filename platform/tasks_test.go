@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/marketplace-specificai/go-specific-ai-sdk/internal/httpclient"
@@ -92,6 +93,10 @@ func TestTaskManager_Get(t *testing.T) {
 
 func TestTaskManager_Create(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/name-limits" {
+			http.NotFound(w, r)
+			return
+		}
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		if body["group_name"] != "my_project" {
@@ -137,5 +142,74 @@ func TestTaskManager_Delete(t *testing.T) {
 	}
 	if resp["success"] != true {
 		t.Fatal("expected success=true")
+	}
+}
+
+func TestTaskManager_Create_RefusesTaskNameOverPlatformLimit(t *testing.T) {
+	created := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/name-limits":
+			json.NewEncoder(w).Encode(map[string]any{"task_name_max_length": 10, "label_name_max_length": 100})
+		case "/create_llm_usecase":
+			created = true
+			json.NewEncoder(w).Encode(map[string]any{"success": true})
+		}
+	})
+	tm := &TaskManager{client: newTestClient(handler), clientID: defaultClientID}
+
+	_, err := tm.Create(context.Background(), "proj", []TaskCreate{{TaskName: "eleven-char"}}, "")
+	if err == nil || created {
+		t.Fatalf("expected the name to be refused before creating, err=%v created=%v", err, created)
+	}
+	if want := "at most 10 characters"; !strings.Contains(err.Error(), want) {
+		t.Fatalf("expected %q in %q", want, err.Error())
+	}
+
+	if _, err := tm.Create(context.Background(), "proj", []TaskCreate{{TaskName: "ten-chars!"}}, ""); err != nil || !created {
+		t.Fatalf("expected a name at the limit to be created, err=%v created=%v", err, created)
+	}
+}
+
+func TestTaskManager_Create_LeavesNamesToPlatformWithoutLimitsEndpoint(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/name-limits" {
+			http.NotFound(w, r)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"success": true})
+	})
+	tm := &TaskManager{client: newTestClient(handler), clientID: defaultClientID}
+
+	long := strings.Repeat("x", 500)
+	if _, err := tm.Create(context.Background(), "proj", []TaskCreate{{TaskName: long}}, ""); err != nil {
+		t.Fatalf("expected an older platform to decide, got %v", err)
+	}
+}
+
+func TestTaskManager_Edit_KeepsStoredNameButRefusesNewLongName(t *testing.T) {
+	stored := strings.Repeat("s", 20)
+	updated := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/name-limits":
+			json.NewEncoder(w).Encode(map[string]any{"task_name_max_length": 10, "label_name_max_length": 100})
+		case "/llm_usecase_info":
+			json.NewEncoder(w).Encode(map[string]any{"llm_usecase": map[string]any{
+				"_id": "t1", "usecase_name": stored, "task_type": "ClassificationResponse",
+			}})
+		case "/update_llm_usecase":
+			updated = true
+			json.NewEncoder(w).Encode(map[string]any{"success": true})
+		}
+	})
+	tm := &TaskManager{client: newTestClient(handler), clientID: defaultClientID}
+
+	tooLong := strings.Repeat("n", 11)
+	if _, err := tm.Edit(context.Background(), "t1", EditParams{TaskName: &tooLong}); err == nil || updated {
+		t.Fatalf("expected a new long name to be refused, err=%v updated=%v", err, updated)
+	}
+	if _, err := tm.Edit(context.Background(), "t1", EditParams{TaskName: &stored}); err != nil || !updated {
+		t.Fatalf("expected the stored name to be kept, err=%v updated=%v", err, updated)
 	}
 }

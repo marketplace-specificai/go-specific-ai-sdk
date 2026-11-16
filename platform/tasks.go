@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/marketplace-specificai/go-specific-ai-sdk/internal/httpclient"
 )
@@ -12,10 +13,21 @@ import (
 type TaskManager struct {
 	client   *httpclient.Client
 	clientID string
+
+	limitsMu sync.Mutex
+	limits   *NameLimits
 }
 
-// Create creates one or more tasks under a project.
+// Create creates one or more tasks under a project. A TaskName longer than the
+// platform accepts (100 characters by default) is refused before any request is sent.
 func (m *TaskManager) Create(ctx context.Context, projectName string, tasks []TaskCreate, projectGoal string) (*CreateTasksResponse, error) {
+	names := make([]string, len(tasks))
+	for i, t := range tasks {
+		names[i] = t.TaskName
+	}
+	if err := m.checkTaskNames(ctx, names...); err != nil {
+		return nil, err
+	}
 	taskPayloads := make([]map[string]any, len(tasks))
 	for i, t := range tasks {
 		b, _ := json.Marshal(t)
@@ -86,11 +98,18 @@ type EditParams struct {
 	TaskLanguages []string
 }
 
-// Edit updates mutable task fields.
+// Edit updates mutable task fields. A new TaskName longer than the platform
+// accepts (100 characters by default) is refused before the update is sent.
 func (m *TaskManager) Edit(ctx context.Context, taskID string, params EditParams) (map[string]any, error) {
 	current, err := m.Get(ctx, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("fetch current task for edit: %w", err)
+	}
+	// The task's own name is kept even if it predates the limit.
+	if params.TaskName != nil && *params.TaskName != current.TaskName {
+		if err := m.checkTaskNames(ctx, *params.TaskName); err != nil {
+			return nil, err
+		}
 	}
 
 	taskName := current.TaskName
