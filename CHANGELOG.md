@@ -102,8 +102,9 @@ empty `BaseModelName` no longer means BERT.
 ### Added
 
 - `TaskManager.Create` and `TaskManager.Edit` return an error for a task name
-  longer than the platform accepts (100 characters by default; the platform's
-  `TASK_NAME_MAX_LENGTH`), before the request is sent. The limit comes from the
+  longer than the platform accepts (32 characters by default; the platform's
+  `NAME_MAX_LENGTH`; a new name may also only contain English letters, digits
+  and hyphens, which the platform checks), before the request is sent. The limit comes from the
   platform's `GET /name-limits`, asked once per `TaskManager`; a platform that
   does not serve it leaves the check to the platform. `Edit` keeps the task's
   stored name.

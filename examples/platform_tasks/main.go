@@ -24,7 +24,7 @@ func main() {
 	// Create a task
 	resp, err := client.Tasks.Create(ctx, "my_project", []platform.TaskCreate{
 		{
-			TaskName: "sentiment_analysis",
+			TaskName: "sentiment-analysis",
 			TaskType: "ClassificationResponse",
 		},
 	}, "Classify customer sentiment")

@@ -10,7 +10,7 @@ import (
 const namePreviewChars = 40
 
 // NameLimits holds the platform's longest accepted task name and label name, in
-// characters (GET /name-limits; TASK_NAME_MAX_LENGTH / LABEL_NAME_MAX_LENGTH, 100 by default).
+// characters (GET /name-limits; NAME_MAX_LENGTH / LABEL_NAME_MAX_LENGTH, 32 and 100 by default).
 type NameLimits struct {
 	TaskNameMaxLength  int `json:"task_name_max_length"`
 	LabelNameMaxLength int `json:"label_name_max_length"`
@@ -58,7 +58,7 @@ func (m *TaskManager) checkTaskNames(ctx context.Context, names ...string) error
 		preview = append(preview[:namePreviewChars], []rune("...")...)
 	}
 	return fmt.Errorf(
-		"task name must be at most %d characters; %q is %d characters long (TASK_NAME_MAX_LENGTH on the platform)",
+		"task name must be at most %d characters; %q is %d characters long (NAME_MAX_LENGTH on the platform)",
 		limits.TaskNameMaxLength, string(preview), length,
 	)
 }
