@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,15 +24,15 @@ type AssetsManager struct {
 
 // UploadDatasetParams holds parameters for a dataset upload.
 type UploadDatasetParams struct {
-	FilePath                    string
-	TaskType                    string
-	IsBenchmark                 bool
-	TaskID                      string
-	DataCreationType            string
-	ExampleColumnName           string
-	LabelColumnName             string
-	IsManualModelPredictions    bool
-	Config                      *DatasetConfig
+	FilePath                 string
+	TaskType                 string
+	IsBenchmark              bool
+	TaskID                   string
+	DataCreationType         string
+	ExampleColumnName        string
+	LabelColumnName          string
+	IsManualModelPredictions bool
+	Config                   *DatasetConfig
 }
 
 // UploadDataset uploads a local file as a dataset or benchmark.
@@ -52,10 +53,10 @@ func (m *AssetsManager) UploadDataset(ctx context.Context, params UploadDatasetP
 	}
 	err = m.client.DoJSON(ctx, httpclient.RequestParams{
 		Method: "POST", Path: "/create-dataset-upload-url",
-		JSONBody: map[string]any{
-			"client_id":    m.clientID,
-			"filename":     filename,
-			"content_type": contentType,
+		FormBody: url.Values{
+			"client_id":    {m.clientID},
+			"filename":     {filename},
+			"content_type": {contentType},
 		},
 	}, &createResp)
 	if err != nil {
@@ -68,6 +69,8 @@ func (m *AssetsManager) UploadDataset(ctx context.Context, params UploadDatasetP
 	}
 	putReq.Header.Set("Content-Type", createResp.ContentType)
 
+	// Not m.client: the signed URL carries its own credentials, and our API key must never
+	// reach the storage provider (S3 also rejects a presigned request with an Authorization header).
 	putResp, err := http.DefaultClient.Do(putReq)
 	if err != nil {
 		return nil, fmt.Errorf("upload file: %w", err)
@@ -83,31 +86,32 @@ func (m *AssetsManager) UploadDataset(ctx context.Context, params UploadDatasetP
 		cfg = &DatasetConfig{}
 	}
 
-	completePayload := map[string]any{
-		"client_id":                         m.clientID,
-		"is_benchmark":                      fmt.Sprintf("%t", params.IsBenchmark),
-		"is_manual_model_predictions":       fmt.Sprintf("%t", params.IsManualModelPredictions),
-		"task_type":                         params.TaskType,
-		"usecase_id":                        params.TaskID,
-		"data_creation_type":                params.DataCreationType,
-		"example_column_name":               params.ExampleColumnName,
-		"label_column_name":                 params.LabelColumnName,
-		"label_mappings":                    mustJSON(cfg.LabelMappings),
-		"relations_column_name":             cfg.RelationsColumnName,
-		"relations_mappings":                mustJSON(cfg.RelationsMappings),
-		"classification_labels_delimiter":   cfg.ClassificationLabelsDelimiter,
-		"examples_are_with_prompt":          fmt.Sprintf("%t", cfg.ExamplesAreWithPrompt),
-		"prompt_template":                   cfg.PromptTemplate,
-		"example_dynamic_field_name":        cfg.ExampleDynamicFieldName,
-		"object_key":                        createResp.ObjectKey,
-		"status_id":                         createResp.StatusID,
-		"upload_filename":                   filename,
-		"signed_content_type":               createResp.ContentType,
+	completePayload := url.Values{
+		"client_id":                         {m.clientID},
+		"is_benchmark":                      {fmt.Sprintf("%t", params.IsBenchmark)},
+		"is_manual_model_predictions":       {fmt.Sprintf("%t", params.IsManualModelPredictions)},
+		"task_type":                         {params.TaskType},
+		"usecase_id":                        {params.TaskID},
+		"data_creation_type":                {params.DataCreationType},
+		"example_column_name":               {params.ExampleColumnName},
+		"label_column_name":                 {params.LabelColumnName},
+		"label_mappings":                    {mustJSON(cfg.LabelMappings)},
+		"relations_column_name":             {cfg.RelationsColumnName},
+		"relations_mappings":                {mustJSON(cfg.RelationsMappings)},
+		"classification_labels_delimiter":   {cfg.ClassificationLabelsDelimiter},
+		"examples_are_with_prompt":          {fmt.Sprintf("%t", cfg.ExamplesAreWithPrompt)},
+		"prompt_template":                   {cfg.PromptTemplate},
+		"example_dynamic_field_name":        {cfg.ExampleDynamicFieldName},
+		"dynamic_fields_in_prompt_template": cfg.DynamicFieldsInPromptTemplate,
+		"object_key":                        {createResp.ObjectKey},
+		"status_id":                         {createResp.StatusID},
+		"upload_filename":                   {filename},
+		"signed_content_type":               {createResp.ContentType},
 	}
 
 	var resp UploadDatasetResponse
 	err = m.client.DoJSON(ctx, httpclient.RequestParams{
-		Method: "POST", Path: "/complete-dataset-upload", JSONBody: completePayload,
+		Method: "POST", Path: "/complete-dataset-upload", FormBody: completePayload,
 	}, &resp)
 	return &resp, err
 }
@@ -279,12 +283,12 @@ func (m *AssetsManager) GetLowConfidenceSamples(ctx context.Context, dataset, la
 	err := m.client.DoJSON(ctx, httpclient.RequestParams{
 		Method: "POST", Path: "/get-top-ranked-examples",
 		JSONBody: map[string]any{
-			"dataset":          dataset,
-			"label":            label,
-			"client_id":        m.clientID,
-			"is_benchmark":     isBenchmark,
-			"k":                k,
-			"llm_usecase_id":   taskID,
+			"dataset":        dataset,
+			"label":          label,
+			"client_id":      m.clientID,
+			"is_benchmark":   isBenchmark,
+			"k":              k,
+			"llm_usecase_id": taskID,
 		},
 	}, &resp)
 	return resp, err
@@ -309,5 +313,8 @@ func mustJSON(v any) string {
 		return "{}"
 	}
 	b, _ := json.Marshal(v)
+	if string(b) == "null" { // a typed nil map is not == nil inside an any
+		return "{}"
+	}
 	return string(b)
 }

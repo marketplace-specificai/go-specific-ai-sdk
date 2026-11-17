@@ -111,6 +111,8 @@ type RequestParams struct {
 	Method   string
 	Path     string
 	JSONBody any
+	// FormBody is sent urlencoded, for routes that read FastAPI Form fields. Ignored when JSONBody is set.
+	FormBody url.Values
 	Query    url.Values
 	Headers  map[string]string
 	Timeout  time.Duration
@@ -122,12 +124,17 @@ func (c *Client) Do(ctx context.Context, p RequestParams) ([]byte, int, error) {
 	reqURL := c.resolveURL(p.Path)
 
 	var bodyBytes []byte
+	contentType := ""
 	if p.JSONBody != nil {
 		var err error
 		bodyBytes, err = json.Marshal(p.JSONBody)
 		if err != nil {
 			return nil, 0, fmt.Errorf("marshal request body: %w", err)
 		}
+		contentType = "application/json"
+	} else if p.FormBody != nil {
+		bodyBytes = []byte(p.FormBody.Encode())
+		contentType = "application/x-www-form-urlencoded"
 	}
 
 	timeout := c.timeout
@@ -157,13 +164,13 @@ func (c *Client) Do(ctx context.Context, p RequestParams) ([]byte, int, error) {
 			return nil, 0, &networkError{msg: "create request", cause: err}
 		}
 
-		c.setHeaders(req, p.Headers, bodyBytes != nil)
+		c.setHeaders(req, p.Headers, contentType)
 
 		if p.Query != nil {
 			req.URL.RawQuery = p.Query.Encode()
 		}
 
-		resp, respBody, doErr := c.doWithRedirects(req, p.Method, bodyBytes)
+		resp, respBody, doErr := c.doWithRedirects(req, p.Method, bodyBytes, contentType)
 		cancel()
 		if doErr != nil {
 			lastErr = &networkError{msg: "execute request", cause: doErr}
@@ -202,7 +209,7 @@ func (c *Client) DoJSON(ctx context.Context, p RequestParams, target any) error 
 // doWithRedirects executes a request and follows up to 10 redirects while
 // preserving the original HTTP method (Go's default client downgrades POST to
 // GET on 301/302, which causes 405 errors on POST-only API routes).
-func (c *Client) doWithRedirects(req *http.Request, method string, bodyBytes []byte) (*http.Response, []byte, error) {
+func (c *Client) doWithRedirects(req *http.Request, method string, bodyBytes []byte, contentType string) (*http.Response, []byte, error) {
 	const maxRedirects = 10
 	for i := 0; i <= maxRedirects; i++ {
 		resp, err := c.httpClient.Do(req)
@@ -227,6 +234,12 @@ func (c *Client) doWithRedirects(req *http.Request, method string, bodyBytes []b
 		if err != nil {
 			return resp, respBody, nil
 		}
+		// The replay re-adds the API key, cookie and body, so follow only within the host and never down
+		// from HTTPS (the rule inference.mayReplay applies). Any other hop is returned unfollowed.
+		if redirectURL.Hostname() != req.URL.Hostname() ||
+			(redirectURL.Scheme != req.URL.Scheme && redirectURL.Scheme != "https") {
+			return resp, respBody, nil
+		}
 
 		var body io.Reader
 		if bodyBytes != nil {
@@ -236,7 +249,7 @@ func (c *Client) doWithRedirects(req *http.Request, method string, bodyBytes []b
 		if err != nil {
 			return nil, nil, err
 		}
-		c.setHeaders(req, nil, bodyBytes != nil)
+		c.setHeaders(req, nil, contentType)
 	}
 	return nil, nil, fmt.Errorf("too many redirects")
 }
@@ -248,10 +261,10 @@ func (c *Client) resolveURL(path string) string {
 	return c.baseURL + strings.TrimLeft(path, "/")
 }
 
-func (c *Client) setHeaders(req *http.Request, extra map[string]string, hasBody bool) {
+func (c *Client) setHeaders(req *http.Request, extra map[string]string, contentType string) {
 	req.Header.Set("Accept", "application/json")
-	if hasBody {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 
 	if c.apiKey != "" {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -207,6 +208,35 @@ func TestDo_RedirectPreservesMethod(t *testing.T) {
 	}
 	if finalMethod != "POST" {
 		t.Fatalf("redirect changed method to %s, expected POST to be preserved", finalMethod)
+	}
+}
+
+func TestDo_RedirectToAnotherHostIsNotFollowed(t *testing.T) {
+	var otherHits, platformHits int
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		otherHits++
+	}))
+	defer other.Close()
+	platform := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		platformHits++
+		// httptest servers all listen on 127.0.0.1, so "localhost" is what makes this another host.
+		w.Header().Set("Location", strings.Replace(other.URL, "127.0.0.1", "localhost", 1))
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer platform.Close()
+
+	c, _ := New(platform.URL, WithAPIKey("sk_test"), WithMaxRetries(3), WithBackoffFactor(0))
+	_, status, err := c.Do(context.Background(), RequestParams{
+		Method: "POST", Path: "/tasks", JSONBody: map[string]string{"key": "val"},
+	})
+	if err == nil || status != http.StatusTemporaryRedirect {
+		t.Fatalf("expected the 307 back as an error, got status %d, err %v", status, err)
+	}
+	if otherHits != 0 {
+		t.Fatalf("the request (and its API key) reached the other host %d times", otherHits)
+	}
+	if platformHits != 1 {
+		t.Fatalf("a refused redirect must not be retried, platform saw %d requests", platformHits)
 	}
 }
 

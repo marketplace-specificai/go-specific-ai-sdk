@@ -99,6 +99,21 @@ empty `BaseModelName` no longer means BERT.
   otherwise receive the API key and the prompt. A refused hop returns an error
   naming both URLs rather than being followed.
 
+### Fixed
+
+- `Assets.UploadDataset` failed on every platform with `HTTP 422: Field
+  required`: it sent `/create-dataset-upload-url` and `/complete-dataset-upload`
+  as JSON, and both routes read form fields. Both now go as a urlencoded form
+  (new `httpclient.RequestParams.FormBody`), `DynamicFieldsInPromptTemplate` is
+  sent as well, and an unset `LabelMappings` / `RelationsMappings` is sent as
+  `{}` rather than `null`. The PUT to the signed storage URL still carries no API
+  key or cookie; `assets_test.go` now pins that.
+- The platform client (`internal/httpclient`) followed a redirect to any host,
+  or from HTTPS down to HTTP, and re-sent the API key, session cookie and body
+  there. It now follows only within the same host and never down from HTTPS,
+  like the inference client; any other redirect comes back unfollowed as an
+  `HTTP 3xx` error and is not retried.
+
 ### Added
 
 - `TaskManager.Create` and `TaskManager.Edit` return an error for a task name
