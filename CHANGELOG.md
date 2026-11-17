@@ -13,46 +13,68 @@ The rows below for published versions were verified by downloading the module
 zips from `proxy.golang.org` and grepping them, not by reading this repository.
 Module path: `github.com/marketplace-specificai/go-specific-ai-sdk`.
 
-## [Unreleased]
+## [v0.2.0] - 2026-11-17
+
+The minor bump is for the breaking inference change below: the platform no
+longer serves `/public/triton/`, so gateway inference now names the model by ID.
 
 ### Changed (breaking)
 
-- **Mode 3 (task/project/version gateway path) removed.** `Client.Infer()` and
-  `Client.Create()` no longer accept a `version int` parameter.
-  Use `modelID="{usecase_id}.v{version}"` (mode 2) for all gateway calls.
-  Direct Triton (`inferenceURL`) is unchanged.
-  `Client.Create()` new signature: `Create(ctx, message, taskName, projectName, modelID string)`.
-  `Client.Infer()` new signature: `Infer(ctx, prompt, taskName, projectName, modelID string)`.
-- `Client.CreateByModelID(ctx, message, modelID string)` added as the recommended
-  mode-2 entry point (wraps `Create` with empty task/project names).
-- `OpenAIClientConfig` / `AnthropicClientConfig`: `SpecificAIVersion int` replaced
-  by `SpecificAIWorkspaceID string` and `SpecificAIModelID string`.
-- `version` moved from the client constructor / `SetVersion()` to `Infer()` and
-  `Create()` as a per-call parameter, so different versions can be called on
-  the same client instance.
+- Gateway inference goes to `{baseURL}/{workspaceID}/models/{modelID}/infer`,
+  where `modelID` is `"{usecase_id}.v{version}"` (`ModelManager.GetEndpoint`
+  returns it). The `/public/api/inference_path` lookup and the `/public/triton`
+  fallback are gone, so a gateway call without `WithWorkspaceID` and a model ID
+  now returns an error instead of addressing the model by project and task name.
+  Direct Triton (`WithInferenceURL`) is unchanged and now requires both names.
+- `Client.Create` and `inference.Client.Infer` take a trailing `modelID string`;
+  pass `""` for direct Triton.
+- With `UseSpecificAIInference`, the OpenAI and Anthropic wrappers infer on
+  `SpecificAIModelID` in workspace `SpecificAIWorkspaceID` (new config fields)
+  and ignore the task and project names they are given.
 
-### Removed (breaking)
+### Fixed
 
-- `publicPrefix` constant removed.
-- `fetchBasePath()` function removed. Auto-discovery via `GET /public/api/inference_path`
-  is gone. Use `WithWorkspaceID` to route through `/public/triton/{workspaceID}`,
-  or let the client derive `/public/triton` from `WithBaseURL`.
-- `NewClientWithEndpoint()` removed. Use `NewClientWithAPIKey` with a `baseURL`
-  and optionally `SetWorkspaceID()`.
-- `SetVersion()` removed. Pass `version` directly to `Infer()` or `Create()`.
-- `WithVersion()` and `WithEndpointURL()` options removed.
-- `gatewayRoot()` removed from the `inference` package (kept in the top-level
-  `client.go` for tracing URL construction).
-- `warnLegacyDiscoveryOnce` removed.
-- `mu` and `basePath` fields removed from `Client`.
+- `Assets.UploadDataset` failed on every platform with `HTTP 422: Field
+  required`: it sent `/create-dataset-upload-url` and `/complete-dataset-upload`
+  as JSON, and both routes read form fields. Both now go as a urlencoded form
+  (new `httpclient.RequestParams.FormBody`), `DynamicFieldsInPromptTemplate` is
+  sent as well, and an unset `LabelMappings` / `RelationsMappings` is sent as
+  `{}` rather than `null`. The PUT to the signed storage URL still carries no API
+  key or cookie; `assets_test.go` now pins that.
+- The platform client (`internal/httpclient`) followed a redirect to any host,
+  or from HTTPS down to HTTP, and re-sent the API key, session cookie and body
+  there. It now follows only within the same host and never down from HTTPS,
+  like the inference client; any other redirect comes back unfollowed as an
+  `HTTP 3xx` error and is not retried.
 
 ### Added
 
-- `WithWorkspaceID` option routes inference through `/public/triton/{workspaceID}`
-  (URL-encoded, so names with spaces work correctly).
-- `SetWorkspaceID()` on `inference.Client` for workspace-scoped routing.
+- `WithWorkspaceID` option, `inference.Client.SetWorkspaceID`, and
+  `Client.CreateByModelID(ctx, message, modelID)` for gateway inference.
+- `ModelManager.GetEndpoint(ctx, taskID)` (`GET /public/inference-endpoint/{taskID}`)
+  returns a deployed task's `model_id` and `model_url`.
+- `TaskManager.Create` and `TaskManager.Edit` return an error for a task name
+  longer than the platform accepts (32 characters by default; the platform's
+  `NAME_MAX_LENGTH`; a new name may also only contain English letters, digits
+  and hyphens, which the platform checks), before the request is sent. The limit comes from the
+  platform's `GET /name-limits`, asked once per `TaskManager`; a platform that
+  does not serve it leaves the check to the platform. `Edit` keeps the task's
+  stored name.
 
-## [v0.1.0] - Unreleased
+### Capabilities
+
+| Capability | Supported |
+| --- | --- |
+| Platform automation — tasks, assets, trainings, models | Yes |
+| Dataset upload — `Assets.UploadDataset` | **Yes — first release where it works** |
+| Gateway inference — `WithBaseURL` + `WithWorkspaceID` + model ID | Yes (**breaking**: by model ID only) |
+| Direct Triton inference — `WithInferenceURL` | Yes (since v0.0.3) |
+| Tracing of SpecificAI model calls — `WithTrace` | Yes |
+| OpenAI and Anthropic wrappers | Yes |
+| Automatic base-model selection — empty `BaseModelName` | Yes (since v0.1.0) |
+| Published to the Go module proxy | Yes |
+
+## [v0.1.0] - 2026-10-25
 
 The Go SDK was **not** affected by the publish drift that motivated this
 release cycle: `WithInferenceURL` has been in every published version since
@@ -99,30 +121,8 @@ empty `BaseModelName` no longer means BERT.
   otherwise receive the API key and the prompt. A refused hop returns an error
   naming both URLs rather than being followed.
 
-### Fixed
-
-- `Assets.UploadDataset` failed on every platform with `HTTP 422: Field
-  required`: it sent `/create-dataset-upload-url` and `/complete-dataset-upload`
-  as JSON, and both routes read form fields. Both now go as a urlencoded form
-  (new `httpclient.RequestParams.FormBody`), `DynamicFieldsInPromptTemplate` is
-  sent as well, and an unset `LabelMappings` / `RelationsMappings` is sent as
-  `{}` rather than `null`. The PUT to the signed storage URL still carries no API
-  key or cookie; `assets_test.go` now pins that.
-- The platform client (`internal/httpclient`) followed a redirect to any host,
-  or from HTTPS down to HTTP, and re-sent the API key, session cookie and body
-  there. It now follows only within the same host and never down from HTTPS,
-  like the inference client; any other redirect comes back unfollowed as an
-  `HTTP 3xx` error and is not retried.
-
 ### Added
 
-- `TaskManager.Create` and `TaskManager.Edit` return an error for a task name
-  longer than the platform accepts (32 characters by default; the platform's
-  `NAME_MAX_LENGTH`; a new name may also only contain English letters, digits
-  and hyphens, which the platform checks), before the request is sent. The limit comes from the
-  platform's `GET /name-limits`, asked once per `TaskManager`; a platform that
-  does not serve it leaves the check to the platform. `Edit` keeps the task's
-  stored name.
 - `TestWithInferenceURL` in `client_test.go`: asserts the option is honoured
   verbatim as the Triton base, that a client built with `WithInferenceURL` alone
   (no `WithBaseURL`) can run inference, and that omitting it derives
@@ -150,7 +150,7 @@ empty `BaseModelName` no longer means BERT.
 | OpenAI and Anthropic wrappers | Yes |
 | Session-cookie auth — `WithSessionCookie` | Yes |
 | Automatic base-model selection — empty `BaseModelName` | **Yes — first release with it** |
-| Published to the Go module proxy | **No — pending** |
+| Published to the Go module proxy | Yes |
 
 v0.1.0 is the first release that CI publishes and tags, from the version in this
 heading. This repository's `.github/workflows/build.yml` now only builds and tests:
